@@ -192,34 +192,51 @@ export const TAX_THRESHOLDS = {
 
 export const COMMON_UNITS = [
     // Khối lượng
-    { value: 'kg', label: 'kg' },
-    { value: 'g', label: 'gram' },
-    { value: 'tấn', label: 'tấn' },
+    { value: 'kg', label: 'kg (kilogram)' },
+    { value: 'g', label: 'g (gram)' },
+    { value: 'tấn', label: 'Tấn' },
 
-    // Số lượng
-    { value: 'cái', label: 'cái' },
-    { value: 'con', label: 'con' },
-    { value: 'bó', label: 'bó' },
-    { value: 'bịch', label: 'bịch' },
-    { value: 'hộp', label: 'hộp' },
-    { value: 'thùng', label: 'thùng' },
+    // Đếm được
+    { value: 'cái', label: 'Cái' },
+    { value: 'chiếc', label: 'Chiếc' },
+    { value: 'con', label: 'Con' },
+    { value: 'quả', label: 'Quả' },
+    { value: 'cây', label: 'Cây' },
+    { value: 'tá', label: 'Tá (12 cái)' },
+    { value: 'chục', label: 'Chục (10 cái)' },
+    { value: 'vỉ', label: 'Vỉ (30 trứng)' },
+
+    // Đóng gói
+    { value: 'hộp', label: 'Hộp' },
+    { value: 'bó', label: 'Bó' },
+    { value: 'bịch', label: 'Bịch' },
+    { value: 'gói', label: 'Gói' },
+    { value: 'bao', label: 'Bao' },
+    { value: 'thùng', label: 'Thùng' },
 
     // Thể tích
-    { value: 'lít', label: 'lít' },
-    { value: 'ml', label: 'ml' },
-    { value: 'chai', label: 'chai' },
-    { value: 'lon', label: 'lon' },
+    { value: 'lít', label: 'Lít' },
+    { value: 'ml', label: 'ml (millilít)' },
+    { value: 'chai', label: 'Chai' },
+    { value: 'lon', label: 'Lon' },
 
     // F&B
-    { value: 'ly', label: 'ly' },
-    { value: 'phần', label: 'phần' },
-    { value: 'suất', label: 'suất' },
+    { value: 'ly', label: 'Ly' },
+    { value: 'phần', label: 'Phần' },
+    { value: 'suất', label: 'Suất' },
+    { value: 'đĩa', label: 'Đĩa' },
 
     // Khác
-    { value: 'lần', label: 'lần' },
-    { value: 'giờ', label: 'giờ' },
-    { value: 'ngày', label: 'ngày' },
+    { value: 'lần', label: 'Lần' },
+    { value: 'giờ', label: 'Giờ' },
+    { value: 'ngày', label: 'Ngày' },
+    { value: 'm', label: 'm (mét)' },
+    { value: 'm²', label: 'm² (mét vuông)' },
+    { value: 'm³', label: 'm³ (mét khối)' },
 ] as const;
+
+// Alias for COMMON_UNITS (for better naming in some contexts)
+export const ALL_UNITS = COMMON_UNITS;
 
 // ==================== ACCOUNTING ACCOUNTS ====================
 

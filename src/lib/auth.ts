@@ -1,8 +1,10 @@
 // src/lib/auth.ts
-// Authentication helpers với Context integration cho Multi-tenancy
+// Authentication helpers với Cookie-based authentication
+// HttpOnly cookies for security
 
 import { SignJWT, jwtVerify } from 'jose';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { prismaBase } from './prisma';
 import { runWithContext, RequestContext } from './context';
@@ -13,54 +15,97 @@ import { env } from '@/env';
 // ==========================================
 
 const JWT_SECRET = new TextEncoder().encode(env.JWT_SECRET);
-const JWT_EXPIRES_IN = env.JWT_EXPIRES_IN;
+const ACCESS_TOKEN_EXPIRES_IN = env.ACCESS_TOKEN_EXPIRES_IN;
+const REFRESH_TOKEN_EXPIRES_IN = env.REFRESH_TOKEN_EXPIRES_IN;
+
+// Cookie names
+const ACCESS_COOKIE = 'laba_access_token';
+const REFRESH_COOKIE = 'laba_refresh_token';
 
 // ==========================================
 // PASSWORD FUNCTIONS
 // ==========================================
 
-/**
- * Hash password với bcrypt (12 rounds)
- */
 export async function hashPassword(password: string): Promise<string> {
     return bcrypt.hash(password, 12);
 }
 
-/**
- * So sánh password với hash
- */
 export async function comparePassword(password: string, hash: string): Promise<boolean> {
     return bcrypt.compare(password, hash);
+}
+
+// ==========================================
+// TOKEN GENERATION
+// ==========================================
+
+/**
+ * Generate OTP 6 số
+ */
+export function generateOTP(): string {
+    return Math.floor(100000 + Math.random() * 900000).toString();
+}
+
+/**
+ * Generate secure random token cho password reset
+ */
+export function generateSecureToken(): string {
+    return crypto.randomBytes(32).toString('hex');
+}
+
+/**
+ * Hash token trước khi lưu database
+ */
+export function hashToken(token: string): string {
+    return crypto.createHash('sha256').update(token).digest('hex');
 }
 
 // ==========================================
 // JWT TOKEN FUNCTIONS
 // ==========================================
 
-/**
- * Payload được lưu trong JWT token
- */
 export interface TokenPayload {
     userId: string;
     farmId: string;
     email: string;
-    [key: string]: unknown; // Allow index signature for jose compatibility
+    type: 'access' | 'refresh';
+    [key: string]: unknown;
 }
 
 /**
- * Tạo JWT token
+ * Parse expiration string to milliseconds
  */
-export async function createToken(payload: TokenPayload): Promise<string> {
-    return new SignJWT({ ...payload })
+function parseExpiration(exp: string): number {
+    const match = exp.match(/^(\d+)([smhd])$/);
+    if (!match) return 15 * 60 * 1000; // default 15 min
+
+    const value = parseInt(match[1]);
+    const unit = match[2];
+
+    switch (unit) {
+        case 's': return value * 1000;
+        case 'm': return value * 60 * 1000;
+        case 'h': return value * 60 * 60 * 1000;
+        case 'd': return value * 24 * 60 * 60 * 1000;
+        default: return 15 * 60 * 1000;
+    }
+}
+
+export async function createAccessToken(payload: Omit<TokenPayload, 'type'>): Promise<string> {
+    return new SignJWT({ ...payload, type: 'access' })
         .setProtectedHeader({ alg: 'HS256' })
         .setIssuedAt()
-        .setExpirationTime(JWT_EXPIRES_IN)
+        .setExpirationTime(ACCESS_TOKEN_EXPIRES_IN)
         .sign(JWT_SECRET);
 }
 
-/**
- * Verify JWT token và trả về payload
- */
+export async function createRefreshToken(payload: Omit<TokenPayload, 'type'>): Promise<string> {
+    return new SignJWT({ ...payload, type: 'refresh' })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .setExpirationTime(REFRESH_TOKEN_EXPIRES_IN)
+        .sign(JWT_SECRET);
+}
+
 export async function verifyToken(token: string): Promise<TokenPayload | null> {
     try {
         const { payload } = await jwtVerify(token, JWT_SECRET);
@@ -71,30 +116,107 @@ export async function verifyToken(token: string): Promise<TokenPayload | null> {
 }
 
 // ==========================================
-// GET CURRENT USER
+// COOKIE FUNCTIONS
 // ==========================================
 
-/**
- * Lấy token từ Authorization header
- */
-export function getTokenFromHeader(request: NextRequest): string | null {
-    const authHeader = request.headers.get('Authorization');
-    if (!authHeader?.startsWith('Bearer ')) return null;
-    return authHeader.split(' ')[1];
+export function setAuthCookies(
+    response: NextResponse,
+    accessToken: string,
+    refreshToken: string,
+    rememberMe: boolean = false
+): void {
+    const isProduction = env.NODE_ENV === 'production';
+    const accessMaxAge = parseExpiration(ACCESS_TOKEN_EXPIRES_IN) / 1000;
+    const refreshMaxAge = parseExpiration(REFRESH_TOKEN_EXPIRES_IN) / 1000;
+
+    response.cookies.set(ACCESS_COOKIE, accessToken, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: accessMaxAge,
+    });
+
+    response.cookies.set(REFRESH_COOKIE, refreshToken, {
+        httpOnly: true,
+        secure: isProduction,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: rememberMe ? refreshMaxAge : undefined, // Session cookie if not remember
+    });
 }
 
-/**
- * Lấy current user từ request
- * Dùng prismaBase để không bị filter theo farm_id
- */
+export function clearAuthCookies(response: NextResponse): void {
+    response.cookies.delete(ACCESS_COOKIE);
+    response.cookies.delete(REFRESH_COOKIE);
+}
+
+export function getTokensFromCookies(request: NextRequest): {
+    accessToken: string | undefined;
+    refreshToken: string | undefined;
+} {
+    return {
+        accessToken: request.cookies.get(ACCESS_COOKIE)?.value,
+        refreshToken: request.cookies.get(REFRESH_COOKIE)?.value,
+    };
+}
+
+// ==========================================
+// REFRESH TOKEN DATABASE FUNCTIONS
+// ==========================================
+
+export async function saveRefreshToken(
+    userId: string,
+    token: string,
+    deviceInfo?: string,
+    ipAddress?: string
+): Promise<void> {
+    const expiresAt = new Date(Date.now() + parseExpiration(REFRESH_TOKEN_EXPIRES_IN));
+
+    await prismaBase.refreshToken.create({
+        data: {
+            user_id: userId,
+            token: hashToken(token),
+            device_info: deviceInfo,
+            ip_address: ipAddress,
+            expires_at: expiresAt,
+        },
+    });
+}
+
+export async function deleteRefreshToken(token: string): Promise<void> {
+    await prismaBase.refreshToken.deleteMany({
+        where: { token: hashToken(token) },
+    });
+}
+
+export async function deleteAllRefreshTokens(userId: string): Promise<void> {
+    await prismaBase.refreshToken.deleteMany({
+        where: { user_id: userId },
+    });
+}
+
+export async function validateRefreshToken(token: string): Promise<boolean> {
+    const storedToken = await prismaBase.refreshToken.findFirst({
+        where: {
+            token: hashToken(token),
+            expires_at: { gt: new Date() },
+        },
+    });
+    return !!storedToken;
+}
+
+// ==========================================
+// GET CURRENT USER (Cookie-based)
+// ==========================================
+
 export async function getCurrentUser(request: NextRequest) {
-    const token = getTokenFromHeader(request);
-    if (!token) return null;
+    const { accessToken } = getTokensFromCookies(request);
+    if (!accessToken) return null;
 
-    const payload = await verifyToken(token);
-    if (!payload) return null;
+    const payload = await verifyToken(accessToken);
+    if (!payload || payload.type !== 'access') return null;
 
-    // Dùng prismaBase để query không bị filter
     const user = await prismaBase.user.findUnique({
         where: { id: payload.userId },
         include: { farm: true },
@@ -103,97 +225,96 @@ export async function getCurrentUser(request: NextRequest) {
     return user;
 }
 
-/**
- * Type for authenticated user (with farm)
- */
 export type AuthUser = NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>;
 
 // ==========================================
-// AUTH MIDDLEWARE WITH CONTEXT
+// AUTH MIDDLEWARE - Requires email verified
 // ==========================================
 
-/**
- * Handler type cho authenticated routes
- */
 type AuthenticatedHandler = (
     request: NextRequest,
     context: { params: Promise<Record<string, string>> },
     user: AuthUser
 ) => Promise<NextResponse>;
 
-/**
- * Middleware wrapper cho protected API routes
- * 
- * Tính năng:
- * - Kiểm tra authentication (JWT token)
- * - Kiểm tra user còn active
- * - Tạo request context với farm_id, user_id
- * - Tất cả Prisma queries trong handler sẽ tự động filter theo farm_id
- * 
- * @example
- * export const GET = withAuth(async (request, context, user) => {
- *   // Không cần thêm farm_id vào where clause
- *   const products = await prisma.product.findMany();
- *   // Prisma Extension đã tự động thêm: WHERE farm_id = user.farm_id
- *   
- *   return NextResponse.json({ success: true, data: products });
- * });
- */
 export function withAuth(handler: AuthenticatedHandler) {
     return async (
         request: NextRequest,
         routeContext: { params: Promise<Record<string, string>> }
     ) => {
-        // 1. Lấy user từ token
         const user = await getCurrentUser(request);
 
         if (!user) {
             return NextResponse.json(
-                {
-                    success: false,
-                    error: {
-                        code: 'UNAUTHORIZED',
-                        message: 'Vui lòng đăng nhập để tiếp tục',
-                    },
-                },
+                { success: false, error: { code: 'UNAUTHORIZED', message: 'Vui lòng đăng nhập' } },
                 { status: 401 }
             );
         }
 
         if (!user.is_active) {
             return NextResponse.json(
-                {
-                    success: false,
-                    error: {
-                        code: 'ACCOUNT_DISABLED',
-                        message: 'Tài khoản đã bị vô hiệu hóa',
-                    },
-                },
+                { success: false, error: { code: 'ACCOUNT_DISABLED', message: 'Tài khoản bị vô hiệu hóa' } },
                 { status: 403 }
             );
         }
 
-        // 2. Lấy thông tin request cho audit log
-        const ipAddress =
-            request.headers.get('x-forwarded-for') ||
-            request.headers.get('x-real-ip') ||
-            'unknown';
-        const userAgent = request.headers.get('user-agent') || 'unknown';
+        if (!user.email_verified) {
+            return NextResponse.json(
+                { success: false, error: { code: 'EMAIL_NOT_VERIFIED', message: 'Vui lòng xác thực email' } },
+                { status: 403 }
+            );
+        }
 
-        // 3. Tạo request context
         const requestContext: RequestContext = {
             farmId: user.farm_id,
             userId: user.id,
             userEmail: user.email,
-            ipAddress,
-            userAgent,
+            ipAddress: request.headers.get('x-forwarded-for') || 'unknown',
+            userAgent: request.headers.get('user-agent') || 'unknown',
         };
 
-        // 4. Chạy handler trong context
-        // Tất cả Prisma queries trong handler sẽ tự động được filter theo farm_id
-        return runWithContext(requestContext, () =>
-            handler(request, routeContext, user)
-        );
+        return runWithContext(requestContext, async () => {
+            return await handler(request, routeContext, user);
+        });
+    };
+}
+
+// ==========================================
+// AUTH MIDDLEWARE - Allows unverified email
+// ==========================================
+
+export function withAuthUnverified(handler: AuthenticatedHandler) {
+    return async (
+        request: NextRequest,
+        routeContext: { params: Promise<Record<string, string>> }
+    ) => {
+        const user = await getCurrentUser(request);
+
+        if (!user) {
+            return NextResponse.json(
+                { success: false, error: { code: 'UNAUTHORIZED', message: 'Vui lòng đăng nhập' } },
+                { status: 401 }
+            );
+        }
+
+        if (!user.is_active) {
+            return NextResponse.json(
+                { success: false, error: { code: 'ACCOUNT_DISABLED', message: 'Tài khoản bị vô hiệu hóa' } },
+                { status: 403 }
+            );
+        }
+
+        const requestContext: RequestContext = {
+            farmId: user.farm_id,
+            userId: user.id,
+            userEmail: user.email,
+            ipAddress: request.headers.get('x-forwarded-for') || 'unknown',
+            userAgent: request.headers.get('user-agent') || 'unknown',
+        };
+
+        return runWithContext(requestContext, async () => {
+            return await handler(request, routeContext, user);
+        });
     };
 }
 
@@ -201,27 +322,12 @@ export function withAuth(handler: AuthenticatedHandler) {
 // OPTIONAL AUTH MIDDLEWARE
 // ==========================================
 
-/**
- * Handler type cho optional auth routes
- */
 type OptionalAuthHandler = (
     request: NextRequest,
     context: { params: Promise<Record<string, string>> },
     user: AuthUser | null
 ) => Promise<NextResponse>;
 
-/**
- * Middleware cho routes không bắt buộc auth nhưng vẫn cần context
- * 
- * @example
- * export const GET = withOptionalAuth(async (request, context, user) => {
- *   if (user) {
- *     // User đã đăng nhập - có thể truy cập data của farm
- *   } else {
- *     // Guest - trả về public data
- *   }
- * });
- */
 export function withOptionalAuth(handler: OptionalAuthHandler) {
     return async (
         request: NextRequest,
@@ -233,45 +339,12 @@ export function withOptionalAuth(handler: OptionalAuthHandler) {
             farmId: user?.farm_id || null,
             userId: user?.id || null,
             userEmail: user?.email || null,
-            ipAddress:
-                request.headers.get('x-forwarded-for') ||
-                request.headers.get('x-real-ip') ||
-                'unknown',
+            ipAddress: request.headers.get('x-forwarded-for') || 'unknown',
             userAgent: request.headers.get('user-agent') || 'unknown',
         };
 
-        return runWithContext(requestContext, () =>
-            handler(request, routeContext, user)
-        );
-    };
-}
-
-// ==========================================
-// UTILITY FUNCTIONS
-// ==========================================
-
-/**
- * Tạo response object cho login success
- */
-export async function createAuthResponse(user: AuthUser) {
-    const token = await createToken({
-        userId: user.id,
-        farmId: user.farm_id,
-        email: user.email,
-    });
-
-    return {
-        token,
-        user: {
-            id: user.id,
-            email: user.email,
-            full_name: user.full_name,
-            role: user.role,
-            farm: {
-                id: user.farm.id,
-                name: user.farm.name,
-                business_type: user.farm.business_type,
-            },
-        },
+        return runWithContext(requestContext, async () => {
+            return await handler(request, routeContext, user);
+        });
     };
 }

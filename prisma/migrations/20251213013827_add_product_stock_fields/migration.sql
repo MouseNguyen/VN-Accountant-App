@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "products" ADD COLUMN     "min_stock" DECIMAL(18,3) NOT NULL DEFAULT 0,
+ADD COLUMN     "stock_qty" DECIMAL(18,3) NOT NULL DEFAULT 0;

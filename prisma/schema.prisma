@@ -46,23 +46,30 @@ enum ProductCategory {
 }
 
 enum TransactionType {
-  CASH_IN
-  CASH_OUT
-  SALE
-  PURCHASE
-  TRANSFER
+  INCOME      // Thu tiền (mapping từ CASH_IN + SALE)
+  EXPENSE     // Chi tiền (mapping từ CASH_OUT + PURCHASE)
+  CASH_IN     // Thu tiền mặt
+  CASH_OUT    // Chi tiền mặt
+  SALE        // Bán hàng
+  PURCHASE    // Mua hàng
+  TRANSFER    // Chuyển khoản nội bộ
 }
 
 enum PaymentMethod {
   CASH
   BANK_TRANSFER
+  MOMO
+  ZALO_PAY
   CREDIT
+  OTHER
 }
 
 enum PaymentStatus {
-  PAID
-  UNPAID
-  PARTIAL
+  PENDING     // Chưa thanh toán
+  PAID        // Đã thanh toán đủ
+  UNPAID      // Chưa thanh toán (legacy)
+  PARTIAL     // Thanh toán một phần
+  CANCELLED   // Đã hủy
 }
 
 enum WorkType {
@@ -70,6 +77,19 @@ enum WorkType {
   HALF_DAY
   OVERTIME
   HOURLY
+}
+
+enum AttendanceType {
+  NORMAL         // Ngày làm việc bình thường
+  PRESENT        // Có mặt (alias for compatibility)
+  OVERTIME       // Làm thêm giờ (cả ngày OT)
+  HALF_DAY       // Nửa ngày
+  ABSENT         // Vắng mặt không phép
+  SICK_LEAVE     // Nghỉ ốm
+  ANNUAL_LEAVE   // Nghỉ phép năm
+  HOLIDAY        // Ngày lễ
+  LATE           // Đi muộn
+  EARLY_LEAVE    // Về sớm
 }
 
 enum TaxRateType {
@@ -91,6 +111,54 @@ enum AuditAction {
   RESTORE
   LOGIN
   LOGOUT
+  EXPORT
+  IMPORT
+  PERIOD_LOCK
+  PERIOD_UNLOCK
+  VAT_SUBMIT
+  PASSWORD_CHANGE
+}
+
+enum InvoiceStatus {
+  DRAFT
+  PENDING
+  PROCESSING
+  PROCESSED    // OCR processed, ready for confirm
+  CONFIRMED    // User confirmed
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ==================== WORKER/PAYROLL ENUMS (from Phase 1 Task 7) ====================
+
+enum WorkerType {
+  FULL_TIME    // Toàn thời gian
+  PART_TIME    // Bán thời gian
+  SEASONAL     // Thời vụ
+  CONTRACT     // Hợp đồng
+}
+
+enum WorkerStatus {
+  ACTIVE       // Đang làm việc
+  INACTIVE     // Nghỉ việc
+  ON_LEAVE     // Đang nghỉ phép dài hạn
+  TERMINATED   // Đã chấm dứt HĐ
+}
+
+enum SalaryType {
+  MONTHLY      // Lương tháng cố định
+  DAILY        // Lương theo ngày
+  HOURLY       // Lương theo giờ
+  PIECE        // Lương khoán
+}
+
+enum PayrollStatus {
+  DRAFT          // Nháp - đang tính
+  CONFIRMED      // Đã xác nhận
+  PARTIAL_PAID   // Đã trả một phần
+  PAID           // Đã trả hết
+  CANCELLED      // Đã hủy
 }
 
 // ==================== CORE TABLES ====================
@@ -116,6 +184,7 @@ model Farm {
   currency    String   @default("VND")
   locale      String   @default("vi-VN")
   fiscal_year_start Int @default(1)  // Tháng bắt đầu năm tài chính
+  allow_negative_stock Boolean @default(false)  // Cho phép tồn kho âm
   
   // Timestamps
   created_at  DateTime @default(now())
@@ -132,6 +201,31 @@ model Farm {
   invoices     Invoice[]
   tax_rules    TaxRule[]
   audit_logs   AuditLog[]
+  // Phase 1 Task 7: Payroll
+  attendances       Attendance[]
+  payrolls          Payroll[]
+  payroll_items     PayrollItem[]
+  payroll_payments  PayrollPayment[]
+  insurance_config  InsuranceConfig?
+  // Phase 2: Inventory
+  stocks            Stock[]
+  stock_movements   StockMovement[]
+  stock_counts      StockCount[]
+  // Phase 2: AR/AP
+  ar_transactions   ARTransaction[]
+  ap_transactions   APTransaction[]
+  // Phase 2: Tax & Period Lock
+  period_locks      PeriodLock[]
+  vat_declarations  VATDeclaration[]
+  tax_package_exports TaxPackageExport[]
+  // Phase 3: Tax Engine & Fixed Assets
+  cit_calculations  CITCalculation[]
+  pit_calculations  PITCalculation[]
+  assets            Asset[]
+  tax_schedules     TaxSchedule[]
+  // Tax Engine 2025
+  material_norms    MaterialNorm[]
+  welfare_expenses  WelfareExpense[]
   
   @@map("farms")
 }
@@ -155,6 +249,14 @@ model User {
   is_active     Boolean  @default(true)
   last_login_at DateTime?
   
+  // Email verification
+  email_verified    Boolean   @default(false)
+  email_verified_at DateTime?
+  
+  // Security - login attempts
+  failed_login_count Int       @default(0)
+  locked_until       DateTime?
+  
   // Timestamps
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
@@ -162,10 +264,55 @@ model User {
   // Relations
   farm          Farm     @relation(fields: [farm_id], references: [id], onDelete: Cascade)
   audit_logs    AuditLog[]
+  // Phase 2: Security
+  sessions      UserSession[]
+  refresh_tokens RefreshToken[]
+  verification_tokens VerificationToken[]
+  tax_package_exports TaxPackageExport[]
+  // Period Lock relations
+  locked_periods   PeriodLock[] @relation("PeriodLockedBy")
+  unlocked_periods PeriodLock[] @relation("PeriodUnlockedBy")
   
   @@index([farm_id])
   @@index([email])
   @@map("users")
+}
+
+/// RefreshToken - Token làm mới phiên đăng nhập
+model RefreshToken {
+  id          String   @id @default(uuid())
+  user_id     String
+  token       String   @unique
+  device_info String?
+  ip_address  String?
+  expires_at  DateTime
+  created_at  DateTime @default(now())
+  
+  // Relations
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@index([user_id])
+  @@index([expires_at])
+  @@map("refresh_tokens")
+}
+
+/// VerificationToken - Token xác thực email / reset password
+model VerificationToken {
+  id          String   @id @default(uuid())
+  user_id     String
+  token       String   @unique
+  type        String   // EMAIL_VERIFY, PASSWORD_RESET
+  expires_at  DateTime
+  used_at     DateTime?
+  created_at  DateTime @default(now())
+  
+  // Relations
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@index([user_id])
+  @@index([token])
+  @@index([type])
+  @@map("verification_tokens")
 }
 
 /// AuditLog - Lịch sử thao tác (Audit Trail)
@@ -178,6 +325,7 @@ model AuditLog {
   action        AuditAction
   entity_type   String        // Transaction, Product, Partner, Worker, etc.
   entity_id     String?
+  entity_name   String?
   
   // Chi tiết thay đổi
   old_values    Json?         @db.JsonB
@@ -188,6 +336,10 @@ model AuditLog {
   ip_address    String?
   user_agent    String?
   description   String?
+  
+  // Tamper-proof hash chain
+  hash          String?
+  previous_hash String?
   
   // Timestamp
   created_at    DateTime @default(now())
@@ -250,37 +402,61 @@ model TaxRate {
   @@map("tax_rates")
 }
 
-/// TaxRule - Quy tắc thuế theo Farm (có thể override)
+/// TaxRule - Quy tắc thuế theo Farm (Phase 3 - Full Tax Engine)
 model TaxRule {
-  id          String   @id @default(uuid())
-  farm_id     String
+  id              String          @id @default(uuid())
+  farm_id         String
   
   // Mã quy tắc
-  code        String
-  category    String        // VAT, PIT, CIT
+  code            String
+  
+  // Loại và hành động
+  rule_type       TaxRuleType     @default(VAT_RATE)
+  category        String          // GENERAL, AGRI_PROD, PAYMENT_METHOD, VEHICLE, ENTERTAINMENT, FAMILY, etc.
+  action          TaxRuleAction   @default(SET_RATE)
   
   // Giá trị
-  value       Decimal  @db.Decimal(18, 2)
-  value_type  String        // PERCENTAGE, THRESHOLD, AMOUNT
+  value           Decimal         @db.Decimal(18, 2)
+  limit_value     Decimal?        @db.Decimal(18, 2)  // Ngưỡng giới hạn (nếu có)
   
-  // Thông tin
-  name        String
-  description String?
-  reference   String?       // Tham chiếu thông tư
+  // Điều kiện phức tạp (JSON)
+  condition       Json?           @db.JsonB  // { amount_gte: 20000000, payment_method_not: "BANK_TRANSFER" }
   
-  // Override tracking
-  original_value  Decimal?  @db.Decimal(18, 2)
-  is_overridden   Boolean   @default(false)
+  // Thông tin mô tả
+  name            String?
+  description     String?
+  reference       String?         // Tham chiếu thông tư (TT219, TT96, NQ954...)
+  
+  // Hiệu lực
+  effective_from  DateTime?       @db.Date
+  effective_to    DateTime?       @db.Date
+  
+  // Override tracking (Hybrid Sync)
+  original_value  Decimal?        @db.Decimal(18, 2)  // Giá trị gốc từ master
+  is_overridden   Boolean         @default(false)     // User đã override?
+  is_system       Boolean         @default(true)      // Rule hệ thống (không xóa)
+  is_active       Boolean         @default(true)      // Đang hoạt động
+  
+  // Sync tracking
+  master_version  Int?            // Version từ master JSON
+  synced_at       DateTime?       // Lần sync cuối
+  
+  // Priority (thứ tự ưu tiên khi nhiều rule cùng áp dụng)
+  priority        Int             @default(100)
   
   // Timestamps
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+  created_by      String?
   
   // Relations
-  farm        Farm     @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  farm            Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  history         TaxRuleHistory[]
   
   @@unique([farm_id, code])
+  @@index([farm_id, rule_type])
   @@index([farm_id, category])
+  @@index([farm_id, is_active])
   @@map("tax_rules")
 }
 
@@ -303,12 +479,20 @@ model Partner {
   // Thông tin doanh nghiệp
   company_name String?
   tax_code    String?
+  contact_name String?  // Tên người liên hệ
   
   // Phân loại
   partner_type PartnerType @default(CUSTOMER)
+  is_active    Boolean     @default(true)  // Trạng thái hoạt động
+  
+  // Tax Engine 2025: Trạng thái NCC (nhập thủ công)
+  supplier_status SupplierStatus @default(ACTIVE)
   
   // Công nợ
-  balance     Decimal  @default(0) @db.Decimal(18, 2)
+  balance          Decimal  @default(0) @db.Decimal(18, 2)
+  credit_limit     Decimal  @default(0) @db.Decimal(18, 2)  // Hạn mức công nợ
+  payment_term_days Int      @default(30)                    // Số ngày thanh toán
+  notes            String?  @db.Text                         // Ghi chú
   
   // Optimistic locking
   version     Int      @default(1)
@@ -324,6 +508,12 @@ model Partner {
   farm         Farm     @relation(fields: [farm_id], references: [id], onDelete: Cascade)
   transactions Transaction[]
   payables     Payable[]
+  // Phase 2: Inventory
+  stock_movements StockMovement[]
+  // Phase 2: AR/AP
+  ar_transactions ARTransaction[] @relation("CustomerAR")
+  ap_transactions APTransaction[] @relation("VendorAP")
+  payment_histories PaymentHistory[]
   
   @@unique([farm_id, code])
   @@index([farm_id, partner_type])
@@ -350,6 +540,16 @@ model Product {
   selling_price  Decimal @default(0) @db.Decimal(18, 2)
   purchase_price Decimal @default(0) @db.Decimal(18, 2)
   
+  // Tồn kho (deprecated - use stocks table for real inventory)
+  stock_qty      Decimal @default(0) @db.Decimal(18, 3)  // Số lượng tồn kho
+  min_stock      Decimal @default(0) @db.Decimal(18, 3)  // Tồn kho tối thiểu
+  avg_cost       Decimal @default(0) @db.Decimal(18, 2)  // Giá vốn bình quân
+  
+  // Trạng thái
+  is_active      Boolean @default(true)   // Đang kinh doanh
+  description    String? @db.Text          // Mô tả sản phẩm
+  image_url      String?                   // URL ảnh sản phẩm
+  
   // Optimistic locking
   version     Int      @default(1)
   
@@ -363,6 +563,12 @@ model Product {
   // Relations
   farm             Farm     @relation(fields: [farm_id], references: [id], onDelete: Cascade)
   transaction_items TransactionItem[]
+  // Phase 2: Inventory
+  stocks           Stock[]
+  stock_movements  StockMovement[]
+  stock_count_items StockCountItem[]
+  // Tax Engine 2025
+  material_norms   MaterialNorm[]
   
   @@unique([farm_id, code])
   @@index([farm_id, category])
@@ -378,6 +584,7 @@ model Transaction {
   
   // Số chứng từ
   trans_number String
+  code         String?    // Alias for trans_number (for code compatibility)
   trans_date   DateTime @db.Date
   trans_type   TransactionType
   
@@ -386,10 +593,12 @@ model Transaction {
   partner_name String?     // Cache để hiển thị nhanh
   
   // Số tiền
-  amount       Decimal  @db.Decimal(18, 2)
-  vat_amount   Decimal  @default(0) @db.Decimal(18, 2)
-  discount_amount Decimal @default(0) @db.Decimal(18, 2)
-  total_amount Decimal  @db.Decimal(18, 2)
+  amount          Decimal  @db.Decimal(18, 2)           // Tổng tiền hàng
+  subtotal        Decimal  @default(0) @db.Decimal(18, 2)  // Tổng trước thuế (= amount)
+  vat_amount      Decimal  @default(0) @db.Decimal(18, 2)  // VAT
+  tax_amount      Decimal  @default(0) @db.Decimal(18, 2)  // Thuế (= vat_amount, for code compatibility)
+  discount_amount Decimal  @default(0) @db.Decimal(18, 2)  // Chiết khấu
+  total_amount    Decimal  @db.Decimal(18, 2)           // Tổng thanh toán
   
   // Thanh toán
   payment_method PaymentMethod @default(CASH)
@@ -403,6 +612,7 @@ model Transaction {
   // Mô tả
   description  String?
   notes        String?
+  payment_note String?   // Ghi chú thanh toán
   
   // Đính kèm
   attachment_url  String?
@@ -410,6 +620,32 @@ model Transaction {
   
   // Optimistic locking
   version     Int      @default(1)
+  
+  // ==================== TAX ENGINE 2025 ====================
+  // Phân loại giao dịch theo loại thuế
+  income_category     IncomeCategory?                // Cho INCOME: AGRI_RAW, AGRI_PROD, GENERAL
+  cash_in_category    CashInCategory?                // Cho CASH_IN: RECEIVABLE, LOAN, CAPITAL...
+  // expense_type dùng cho cả EXPENSE và CASH_OUT
+  
+  // Mục đích sử dụng và loại chi phí
+  usage_purpose       UsagePurpose @default(BUSINESS)
+  expense_type        ExpenseType  @default(NORMAL)
+  
+  // VAT validation results
+  vat_deductible      Boolean @default(true)
+  vat_rejection_code  String?                        // VAT_NON_CASH, VAT_CAR_LUXURY, etc.
+  vat_rejection_reason String?
+  vat_deductible_amount Decimal? @db.Decimal(18, 2)  // For PARTIAL (1.6B cap)
+  
+  // CIT add-back results
+  cit_deductible       Boolean @default(true)
+  cit_addback_amount   Decimal @default(0) @db.Decimal(18, 2)
+  cit_addback_reason   String?                       // CIT_PENALTY, CIT_WELFARE_CAP, etc.
+  
+  // Dual status tracking
+  accounting_expense   Boolean @default(true)        // Reflected in P&L
+  tax_expense          Boolean @default(true)        // Deductible for tax
+  // ==================== END TAX ENGINE 2025 ====================
   
   // Soft delete
   deleted_at  DateTime?
@@ -425,6 +661,14 @@ model Transaction {
   items        TransactionItem[]
   work_logs    WorkLog[]
   payables     Payable[]
+  // Phase 2: Inventory
+  stock_movements StockMovement[]
+  // Phase 2: AR/AP
+  ar_transactions ARTransaction[] @relation("TransactionAR")
+  ap_transactions APTransaction[] @relation("TransactionAP")
+  payment_allocations PaymentAllocation[]
+  // Phase 3: CIT Adjustments
+  cit_adjustments CITAdjustment[]
   
   @@unique([farm_id, trans_number])
   @@index([farm_id, trans_date])
@@ -440,22 +684,31 @@ model TransactionItem {
   
   // Sản phẩm
   product_id     String?
-  product_name   String
+  product_name   String   @default("")  // Tên sản phẩm (can be empty for generic items)
   product_code   String?
   
   // Số lượng
   quantity       Decimal  @db.Decimal(18, 2)
   unit           String   @default("kg")
   unit_price     Decimal  @db.Decimal(18, 2)
+  unit_cost      Decimal  @default(0) @db.Decimal(18, 2)  // Giá vốn
   
   // Giảm giá và thuế
   discount       Decimal  @default(0) @db.Decimal(18, 2)
+  discount_percent Decimal @default(0) @db.Decimal(5, 2)  // % chiết khấu
+  discount_amount  Decimal @default(0) @db.Decimal(18, 2)  // Số tiền chiết khấu
   vat_rate       Decimal  @default(0) @db.Decimal(5, 2)
+  tax_rate       Decimal  @default(0) @db.Decimal(5, 2)   // Alias for vat_rate
   vat_amount     Decimal  @default(0) @db.Decimal(18, 2)
+  tax_amount     Decimal  @default(0) @db.Decimal(18, 2)  // Alias for vat_amount
   
   // Thành tiền
-  sub_total      Decimal  @db.Decimal(18, 2)  // Chưa thuế
-  total          Decimal  @db.Decimal(18, 2)  // Có thuế
+  sub_total      Decimal  @default(0) @db.Decimal(18, 2)  // Chưa thuế
+  total          Decimal  @default(0) @db.Decimal(18, 2)  // Có thuế
+  line_total     Decimal  @default(0) @db.Decimal(18, 2)  // Alias for total
+  
+  // Mô tả
+  description    String?
   
   // Timestamp
   created_at     DateTime @default(now())
@@ -498,46 +751,133 @@ model Payable {
   farm         Farm        @relation(fields: [farm_id], references: [id], onDelete: Cascade)
   partner      Partner     @relation(fields: [partner_id], references: [id])
   transaction  Transaction? @relation(fields: [source_id], references: [id])
+  payment_allocations PaymentAllocation[]
   
   @@index([farm_id, partner_id])
   @@index([farm_id, status])
   @@map("payables")
 }
 
+/// PaymentHistory - Lịch sử thanh toán
+model PaymentHistory {
+  id              String          @id @default(uuid())
+  farm_id         String
+  partner_id      String
+  
+  payment_date    DateTime        @db.Date
+  payment_method  PaymentMethod   @default(CASH)
+  amount          Decimal         @db.Decimal(18, 2)
+  reference       String?         // Số tham chiếu/chứng từ
+  notes           String?
+  
+  // Balance tracking
+  balance_before  Decimal         @default(0) @db.Decimal(18, 2)
+  balance_after   Decimal         @default(0) @db.Decimal(18, 2)
+  
+  created_at      DateTime        @default(now())
+  created_by      String?
+  
+  // Relations
+  partner         Partner         @relation(fields: [partner_id], references: [id])
+  allocations     PaymentAllocation[]
+  
+  @@index([farm_id, partner_id])
+  @@index([farm_id, payment_date])
+  @@map("payment_histories")
+}
+
+/// PaymentAllocation - Phân bổ thanh toán vào các khoản nợ
+model PaymentAllocation {
+  id              String          @id @default(uuid())
+  farm_id         String
+  payment_id      String
+  payable_id      String?         // Optional - for legacy Payable
+  transaction_id  String?         // Direct link to Transaction
+  partner_id      String?         // Partner reference
+  
+  amount              Decimal     @db.Decimal(18, 2)
+  transaction_paid_before Decimal @default(0) @db.Decimal(18, 2)
+  transaction_paid_after  Decimal @default(0) @db.Decimal(18, 2)
+  
+  created_at      DateTime        @default(now())
+  
+  // Relations
+  payment         PaymentHistory  @relation(fields: [payment_id], references: [id], onDelete: Cascade)
+  payable         Payable?        @relation(fields: [payable_id], references: [id])
+  transaction     Transaction?    @relation(fields: [transaction_id], references: [id])
+  
+  @@index([payment_id])
+  @@index([payable_id])
+  @@index([transaction_id])
+  @@map("payment_allocations")
+}
+
 // ==================== WORKER TABLES ====================
 
-/// Worker - Nhân công
+/// Worker - Nhân công (Phase 1 Task 7 Spec)
 model Worker {
-  id          String   @id @default(uuid())
-  farm_id     String
+  id              String        @id @default(uuid())
+  farm_id         String
+  code            String        // NV001, NV002...
   
-  // Mã và tên
-  code        String
-  name        String
+  // Thông tin cá nhân
+  name            String
+  phone           String?
+  id_card         String?       // CCCD/CMND
+  address         String?
+  date_of_birth   DateTime?     @db.Date
   
-  // Thông tin liên hệ
-  phone       String?
-  address     String?
-  
-  // CMND/CCCD
+  // CMND/CCCD chi tiết
   identity_card       String?
   identity_issue_date DateTime? @db.Date
   identity_issue_place String?
   
-  // Thuế
-  tax_code            String?
+  // Thông tin công việc
+  worker_type     WorkerType    @default(FULL_TIME)
+  status          WorkerStatus  @default(ACTIVE)
+  position        String?       // Vị trí: Công nhân, Quản lý, Kế toán...
+  start_date      DateTime      @default(now()) @db.Date  // Ngày vào làm
+  end_date        DateTime?     @db.Date // Ngày nghỉ việc (nếu có)
+  
+  // Thông tin lương
+  salary_type     SalaryType    @default(MONTHLY)
+  base_salary     Decimal       @default(0) @db.Decimal(18, 2)  // Lương cơ bản
+  daily_rate      Decimal       @default(0) @db.Decimal(18, 2)  // Đơn giá ngày
+  
+  // Thông tin BHXH & Thuế
+  tax_code            String?               // Mã số thuế cá nhân
   has_tax_commitment  Boolean   @default(false)
   commitment_date     DateTime? @db.Date
+  dependents          Int       @default(0) // Số người phụ thuộc (giảm trừ thuế)
+  insurance_base      Decimal?  @db.Decimal(18, 2)  // Mức đóng BHXH (nếu khác base_salary)
+  is_subject_to_tax   Boolean   @default(true)      // Có chịu thuế TNCN không
   
-  // Đơn giá
-  daily_rate  Decimal  @default(0) @db.Decimal(18, 2)
+  // ==================== TAX ENGINE 2025 ====================
+  // Loại lao động (cho PIT flat rate rules)
+  labor_type          LaborType @default(FULL_TIME)
+  
+  // Cam kết 08 tracking
+  has_commitment_08   Boolean   @default(false)
+  commitment_08_date  DateTime? @db.Date
+  commitment_08_file  String?                       // File path/URL
+  
+  // Non-resident status (20% flat rate)
+  is_non_resident     Boolean   @default(false)
+  // ==================== END TAX ENGINE 2025 ====================
+  
+  // Quỹ phép năm
+  annual_leave_days   Decimal   @default(12) @db.Decimal(4, 2)  // Số ngày phép/năm
+  annual_leave_used   Decimal   @default(0) @db.Decimal(4, 2)   // Đã sử dụng
+  sick_leave_days     Decimal   @default(3) @db.Decimal(4, 2)   // Phép ốm có lương
+  sick_leave_used     Decimal   @default(0) @db.Decimal(4, 2)   // Đã sử dụng
   
   // Thu nhập cộng dồn trong năm (để tính thuế TNCN)
   total_income_ytd Decimal @default(0) @db.Decimal(18, 2)
   
   // Thông tin ngân hàng
-  bank_account String?
-  bank_name    String?
+  bank_name       String?
+  bank_account    String?
+  bank_holder     String?
   
   // Ảnh chứng từ
   id_card_front_url   String?
@@ -545,8 +885,11 @@ model Worker {
   contract_image_url  String?
   commitment_image_url String?
   
-  // Trạng thái
+  // Trạng thái (legacy - use status instead)
   is_active   Boolean  @default(true)
+  
+  // Meta
+  note            String?
   
   // Soft delete
   deleted_at  DateTime?
@@ -556,10 +899,18 @@ model Worker {
   updated_at  DateTime @updatedAt
   
   // Relations
-  farm        Farm      @relation(fields: [farm_id], references: [id], onDelete: Cascade)
-  work_logs   WorkLog[]
+  farm            Farm          @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  work_logs       WorkLog[]
+  attendances     Attendance[]
+  payroll_items   PayrollItem[]
+  // Phase 3: PIT
+  pit_calculations PITCalculation[]
+  // Tax Engine 2025
+  welfare_expenses WelfareExpense[]
   
   @@unique([farm_id, code])
+  @@index([farm_id, status])
+  @@index([farm_id, worker_type])
   @@index([farm_id, is_active])
   @@map("workers")
 }
@@ -611,6 +962,215 @@ model WorkLog {
   @@map("work_logs")
 }
 
+// ==================== ATTENDANCE & PAYROLL (Phase 1 Task 7) ====================
+
+/// Attendance - Chấm công chi tiết (Phase 1 Task 7)
+model Attendance {
+  id              String          @id @default(uuid())
+  farm_id         String
+  worker_id       String
+  
+  work_date       DateTime        @db.Date  // Ngày làm việc
+  attendance_type AttendanceType  @default(PRESENT)
+  
+  // Giờ làm việc cơ bản
+  check_in        DateTime?       // Giờ vào
+  check_out       DateTime?       // Giờ ra
+  work_hours      Decimal         @default(8) @db.Decimal(4, 2)  // Số giờ làm
+  
+  // OT tách loại
+  ot_normal_hours   Decimal       @default(0) @db.Decimal(4, 2)  // OT ngày thường (150%)
+  ot_weekend_hours  Decimal       @default(0) @db.Decimal(4, 2)  // OT T7/CN (200%)
+  ot_holiday_hours  Decimal       @default(0) @db.Decimal(4, 2)  // OT Lễ (300%)
+  night_hours       Decimal       @default(0) @db.Decimal(4, 2)  // Làm đêm 22h-6h (+30%)
+  
+  // Ghi chú
+  note            String?
+  
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+  created_by      String?
+  
+  // Relations
+  farm            Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  worker          Worker          @relation(fields: [worker_id], references: [id])
+  
+  @@unique([farm_id, worker_id, work_date])  // Mỗi ngày chỉ 1 record
+  @@index([farm_id, work_date])
+  @@index([farm_id, worker_id])
+  @@index([farm_id, work_date, attendance_type])
+  @@map("attendances")
+}
+
+/// InsuranceConfig - Cấu hình BHXH/Thuế cho từng Farm
+model InsuranceConfig {
+  id                    String    @id @default(uuid())
+  farm_id               String    @unique
+  
+  // Tỷ lệ BHXH (người lao động đóng)
+  bhxh_employee_rate    Decimal   @default(8) @db.Decimal(4, 2)    // 8%
+  bhyt_employee_rate    Decimal   @default(1.5) @db.Decimal(4, 2)  // 1.5%
+  bhtn_employee_rate    Decimal   @default(1) @db.Decimal(4, 2)    // 1%
+  
+  // Mức lương tối đa đóng BHXH (20 lần lương cơ sở)
+  max_insurance_base    Decimal   @default(36000000) @db.Decimal(18, 2)
+  
+  // Giảm trừ thuế TNCN
+  personal_deduction    Decimal   @default(11000000) @db.Decimal(18, 2)  // 11tr/người
+  dependent_deduction   Decimal   @default(4400000) @db.Decimal(18, 2)   // 4.4tr/người phụ thuộc
+  
+  // Hệ số OT (có thể tùy chỉnh theo farm)
+  ot_normal_rate        Decimal   @default(1.5) @db.Decimal(4, 2)   // 150% ngày thường
+  ot_weekend_rate       Decimal   @default(2.0) @db.Decimal(4, 2)   // 200% T7/CN
+  ot_holiday_rate       Decimal   @default(3.0) @db.Decimal(4, 2)   // 300% Lễ
+  night_bonus_rate      Decimal   @default(0.3) @db.Decimal(4, 2)   // +30% đêm
+  
+  created_at            DateTime  @default(now())
+  updated_at            DateTime  @updatedAt
+  
+  farm                  Farm      @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  
+  @@map("insurance_configs")
+}
+
+/// Payroll - Bảng lương kỳ
+model Payroll {
+  id              String          @id @default(uuid())
+  farm_id         String
+  code            String          // BL2501-001 (Bảng lương tháng 01/2025)
+  
+  // Kỳ lương
+  period_start    DateTime        @db.Date
+  period_end      DateTime        @db.Date
+  period_type     String          @default("MONTHLY")  // WEEKLY, BIWEEKLY, MONTHLY
+  
+  // Tổng hợp
+  total_base      Decimal         @default(0) @db.Decimal(18, 2)  // Tổng lương cơ bản
+  total_ot        Decimal         @default(0) @db.Decimal(18, 2)  // Tổng OT (tất cả loại)
+  total_allowance Decimal         @default(0) @db.Decimal(18, 2)  // Tổng phụ cấp
+  total_deduction Decimal         @default(0) @db.Decimal(18, 2)  // Tổng khấu trừ (bao gồm BHXH, thuế)
+  total_employer_insurance Decimal @default(0) @db.Decimal(18, 2)  // BHXH phần DN đóng
+  total_gross     Decimal         @default(0) @db.Decimal(18, 2)  // Tổng trước khấu trừ
+  total_net       Decimal         @default(0) @db.Decimal(18, 2)  // Thực lĩnh
+  
+  // Thanh toán
+  paid_amount     Decimal         @default(0) @db.Decimal(18, 2)
+  status          PayrollStatus   @default(DRAFT)
+  
+  // Meta
+  note            String?
+  confirmed_at    DateTime?
+  confirmed_by    String?
+  employer_insurance_transaction_id String?  // Link to expense transaction for employer insurance
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+  
+  // Relations
+  farm            Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  items           PayrollItem[]
+  payments        PayrollPayment[]
+  
+  @@unique([farm_id, code])
+  @@index([farm_id, period_start])
+  @@index([farm_id, status])
+  @@index([farm_id, period_start, period_end])
+  @@map("payrolls")
+}
+
+/// PayrollItem - Chi tiết lương từng NV
+model PayrollItem {
+  id              String          @id @default(uuid())
+  farm_id         String
+  payroll_id      String
+  worker_id       String
+  
+  // Thông tin tính lương
+  salary_type     SalaryType
+  base_rate       Decimal         @db.Decimal(18, 2)  // Mức lương cơ bản
+  
+  // Ngày công / Giờ công
+  work_days       Decimal         @default(0) @db.Decimal(4, 2)
+  work_hours      Decimal         @default(0) @db.Decimal(6, 2)
+  
+  // OT chi tiết
+  ot_normal_hours     Decimal     @default(0) @db.Decimal(6, 2)   // Giờ OT thường
+  ot_weekend_hours    Decimal     @default(0) @db.Decimal(6, 2)   // Giờ OT CN
+  ot_holiday_hours    Decimal     @default(0) @db.Decimal(6, 2)   // Giờ OT lễ
+  night_hours         Decimal     @default(0) @db.Decimal(6, 2)   // Giờ đêm
+  
+  // Các khoản tiền
+  base_amount         Decimal     @default(0) @db.Decimal(18, 2)  // Lương cơ bản
+  ot_normal_amount    Decimal     @default(0) @db.Decimal(18, 2)  // Tiền OT thường (150%)
+  ot_weekend_amount   Decimal     @default(0) @db.Decimal(18, 2)  // Tiền OT CN (200%)
+  ot_holiday_amount   Decimal     @default(0) @db.Decimal(18, 2)  // Tiền OT lễ (300%)
+  night_amount        Decimal     @default(0) @db.Decimal(18, 2)  // Tiền làm đêm (+30%)
+  
+  // Phụ cấp & Khấu trừ
+  allowances          Json?           // [{name: "Ăn trưa", amount: 500000}, ...]
+  total_allowance     Decimal     @default(0) @db.Decimal(18, 2)
+  deductions          Json?           // [{name: "Tạm ứng", amount: 1000000}, ...]
+  total_deduction     Decimal     @default(0) @db.Decimal(18, 2)
+  
+  // BHXH & Thuế tự động (NV đóng 10.5%)
+  bhxh_amount         Decimal     @default(0) @db.Decimal(18, 2)  // BHXH 8%
+  bhyt_amount         Decimal     @default(0) @db.Decimal(18, 2)  // BHYT 1.5%
+  bhtn_amount         Decimal     @default(0) @db.Decimal(18, 2)  // BHTN 1%
+  insurance_amount    Decimal     @default(0) @db.Decimal(18, 2)  // Tổng BH (NV đóng)
+  
+  // BHXH phần DN đóng (21.5%)
+  employer_bhxh       Decimal     @default(0) @db.Decimal(18, 2)  // DN: BHXH 17.5%
+  employer_bhyt       Decimal     @default(0) @db.Decimal(18, 2)  // DN: BHYT 3%
+  employer_bhtn       Decimal     @default(0) @db.Decimal(18, 2)  // DN: BHTN 1%
+  employer_bhtnld     Decimal     @default(0) @db.Decimal(18, 2)  // DN: BH TNLĐ 0.5%
+  employer_insurance  Decimal     @default(0) @db.Decimal(18, 2)  // Tổng BH phần DN đóng
+  tax_amount          Decimal     @default(0) @db.Decimal(18, 2)  // Thuế TNCN
+  
+  // Tổng cộng
+  gross_amount        Decimal     @default(0) @db.Decimal(18, 2)  // Tổng trước khấu trừ
+  net_amount          Decimal     @default(0) @db.Decimal(18, 2)  // Thực lĩnh
+  
+  // Thanh toán
+  paid_amount         Decimal     @default(0) @db.Decimal(18, 2)
+  is_paid             Boolean     @default(false)
+  paid_at             DateTime?
+  
+  note            String?
+  created_at      DateTime        @default(now())
+  updated_at      DateTime        @updatedAt
+  
+  // Relations
+  farm            Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  payroll         Payroll         @relation(fields: [payroll_id], references: [id], onDelete: Cascade)
+  worker          Worker          @relation(fields: [worker_id], references: [id])
+  
+  @@unique([payroll_id, worker_id])
+  @@index([farm_id, payroll_id])
+  @@index([farm_id, worker_id])
+  @@map("payroll_items")
+}
+
+/// PayrollPayment - Lịch sử chi trả lương
+model PayrollPayment {
+  id              String          @id @default(uuid())
+  farm_id         String
+  payroll_id      String
+  
+  amount          Decimal         @db.Decimal(18, 2)
+  payment_method  PaymentMethod   @default(CASH)
+  payment_date    DateTime        @default(now())
+  
+  note            String?
+  created_at      DateTime        @default(now())
+  created_by      String?
+  
+  // Relations
+  farm            Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  payroll         Payroll         @relation(fields: [payroll_id], references: [id], onDelete: Cascade)
+  
+  @@index([farm_id, payroll_id])
+  @@map("payroll_payments")
+}
+
 // ==================== OCR TABLE ====================
 
 /// Invoice - Hóa đơn (OCR)
@@ -626,23 +1186,45 @@ model Invoice {
   invoice_date   DateTime? @db.Date
   invoice_serial String?
   
-  // Nhà cung cấp
-  vendor_name    String?
-  vendor_tax_code String?
+  // Nhà cung cấp (vendor_name already exists as vendor_name)
+  supplier_name    String?    // Alias for vendor_name
+  supplier_tax_code String?   // Alias for vendor_tax_code
   
   // Số tiền
   amount         Decimal? @db.Decimal(18, 2)
-  vat_amount     Decimal? @db.Decimal(18, 2)
+  subtotal       Decimal? @db.Decimal(18, 2)   // Before tax
+  tax_amount     Decimal? @db.Decimal(18, 2)   // VAT amount
+  vat_amount     Decimal? @db.Decimal(18, 2)   // Alias for tax_amount
   total_amount   Decimal? @db.Decimal(18, 2)
   
   // Ảnh và OCR
   image_url      String?
+  image_hash     String?    // Hash for duplicate detection
   ocr_status     OcrStatus @default(PENDING)
   ocr_result     Json?     @db.JsonB
+  ocr_raw        Json?     @db.JsonB    // Raw OCR text
+  ocr_parsed     Json?     @db.JsonB    // Parsed structured data
   ocr_confidence Decimal?  @db.Decimal(5, 2)
+  ocr_provider   String?   // google, openai, etc.
+  
+  // Partner matching
+  matched_partner_id String?   // Auto-matched partner
+  match_confidence   Decimal?  @db.Decimal(5, 2)  // Match confidence %
+  
+  // Trạng thái hóa đơn
+  status         InvoiceStatus @default(PENDING)
   
   // Link đến transaction (sau khi xác nhận)
   transaction_id String?
+  
+  // File info
+  file_size      Int?        // File size in bytes
+  created_by     String?     // User ID who uploaded
+  expires_at     DateTime?   // Expiry for cleanup
+  error_message  String?     // Error message if failed
+  retry_count    Int         @default(0)  // OCR retry count
+  confirmed_at   DateTime?   // When user confirmed
+  confirmed_by   String?     // User who confirmed
   
   // Timestamps
   created_at  DateTime @default(now())
@@ -652,5 +1234,993 @@ model Invoice {
   farm        Farm     @relation(fields: [farm_id], references: [id], onDelete: Cascade)
   
   @@index([farm_id, ocr_status])
+  @@index([farm_id, status])
+  @@index([image_hash])
   @@map("invoices")
+}
+
+// ==================== PHASE 2: INVENTORY ENUMS ====================
+
+enum StockMovementType {
+  IN          // Nhập kho
+  OUT         // Xuất kho
+  ADJUST_IN   // Điều chỉnh tăng
+  ADJUST_OUT  // Điều chỉnh giảm
+  TRANSFER    // Chuyển kho
+  RETURN      // Trả hàng
+}
+
+enum StockCountStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+// ==================== PHASE 2: AR/AP ENUMS ====================
+
+enum ARTransactionType {
+  INVOICE       // Hóa đơn bán hàng
+  PAYMENT       // Thu tiền
+  CREDIT_NOTE   // Giảm giá/Trả hàng
+  WRITE_OFF     // Xóa nợ
+}
+
+enum APTransactionType {
+  INVOICE       // Hóa đơn mua hàng
+  PAYMENT       // Trả tiền
+  DEBIT_NOTE    // Giảm giá/Trả hàng
+  WRITE_OFF     // Xóa nợ
+}
+
+enum ARAPStatus {
+  UNPAID        // Chưa thanh toán
+  PARTIAL       // Thanh toán một phần
+  PAID          // Đã thanh toán đủ
+  OVERDUE       // Quá hạn
+  CANCELLED     // Đã hủy
+}
+
+// ==================== PHASE 2: TAX & PERIOD LOCK ENUMS ====================
+
+enum LockStatus {
+  OPEN                  // Đang mở
+  LOCKED                // Đã khóa
+  PERMANENTLY_LOCKED    // Khóa vĩnh viễn
+}
+
+enum VATDeclarationStatus {
+  DRAFT         // Nháp
+  CALCULATED    // Đã tính
+  SUBMITTED     // Đã nộp
+  APPROVED      // Đã duyệt
+  REJECTED      // Bị từ chối
+}
+
+enum VATPeriodType {
+  MONTHLY       // Hàng tháng
+  QUARTERLY     // Hàng quý
+}
+
+// ==================== PHASE 3: TAX ENGINE ENUMS ====================
+
+enum TaxRuleType {
+  VAT_RATE          // Thuế suất VAT
+  VAT_DEDUCTIBLE    // Quy tắc khấu trừ VAT
+  CIT_ADD_BACK      // Điều chỉnh tăng TNDN
+  CIT_DEDUCTION     // Điều chỉnh giảm TNDN
+  PIT_DEDUCTION     // Giảm trừ TNCN
+  PIT_BRACKET       // Bậc thuế TNCN
+}
+
+enum TaxRuleAction {
+  SET_RATE          // Đặt thuế suất
+  DENY              // Từ chối khấu trừ
+  LIMIT             // Giới hạn mức
+  ADD_BACK          // Cộng ngược (CIT)
+  DEDUCT            // Giảm trừ
+  WARN              // Cảnh báo
+  ALLOW             // Cho phép
+  CALCULATE         // Tính toán (PIT progressive)
+  PARTIAL           // Khấu trừ một phần (VAT xe > 1.6B)
+}
+
+enum TaxType {
+  VAT               // Thuế GTGT
+  CIT               // Thuế TNDN
+  PIT               // Thuế TNCN
+}
+
+enum TaxScheduleStatus {
+  PENDING           // Chưa xử lý
+  REMINDED          // Đã nhắc
+  SUBMITTED         // Đã nộp
+  PAID              // Đã thanh toán
+  OVERDUE           // Quá hạn
+}
+
+enum CITPeriodType {
+  QUARTERLY         // Tạm tính quý
+  ANNUAL            // Quyết toán năm
+}
+
+enum CITAdjustmentType {
+  ADD_BACK          // Điều chỉnh tăng
+  DEDUCTION         // Điều chỉnh giảm
+}
+
+enum AssetCategory {
+  MACHINERY         // Máy móc, thiết bị sản xuất
+  VEHICLE           // Phương tiện vận tải
+  BUILDING          // Nhà cửa, vật kiến trúc
+  EQUIPMENT         // Thiết bị, công cụ
+  LIVESTOCK         // Động vật làm việc
+  OTHER             // Tài sản khác
+}
+
+enum AssetStatus {
+  ACTIVE            // Đang sử dụng
+  DISPOSED          // Đã thanh lý
+  SOLD              // Đã bán
+  UNDER_REPAIR      // Đang sửa chữa
+}
+
+enum DepreciationMethod {
+  STRAIGHT_LINE     // Đường thẳng
+  DECLINING_BALANCE // Số dư giảm dần
+}
+
+// ==================== TAX ENGINE 2025 ENUMS ====================
+
+enum SupplierStatus {
+  ACTIVE            // Đang hoạt động
+  SUSPENDED         // Bị đình chỉ
+  CLOSED            // Đã đóng MST
+  BANKRUPT          // Phá sản
+}
+
+enum UsagePurpose {
+  BUSINESS          // Phục vụ SXKD
+  PERSONAL          // Cá nhân
+  WELFARE_FUND      // Quỹ phúc lợi
+}
+
+// Chi phí cho EXPENSE và CASH_OUT
+enum ExpenseType {
+  NORMAL            // Chi phí thường
+  ADMIN_PENALTY     // Tiền phạt hành chính (CIT add-back 100%)
+  WELFARE           // Chi phúc lợi (CIT cap)
+  MATERIALS         // Nguyên vật liệu
+  SALARY            // Lương thưởng (PIT applicable)
+  UTILITY           // Điện/Nước/Internet (VAT deductible)
+  RENT              // Thuê mặt bằng (VAT deductible)
+  LOAN_REPAYMENT    // Trả nợ vay (không ảnh hưởng thuế)
+  ENTERTAINMENT     // Tiếp khách (CIT limit)
+  EQUIPMENT         // Thiết bị/Máy móc
+  VEHICLE           // Phương tiện vận tải
+  INSURANCE         // Bảo hiểm
+}
+
+// Phân loại doanh thu cho INCOME
+enum IncomeCategory {
+  AGRI_RAW          // Nông sản sơ chế (VAT 0%)
+  AGRI_PROD         // Nông sản thương mại (VAT 5%)
+  GENERAL           // Hàng hóa/dịch vụ khác (VAT 10%)
+  SERVICE           // Dịch vụ
+  ASSET_SALE        // Thanh lý tài sản
+}
+
+// Phân loại thu tiền cho CASH_IN
+enum CashInCategory {
+  RECEIVABLE_COLLECTION   // Thu công nợ khách hàng
+  BANK_LOAN               // Vay ngân hàng
+  OWNER_CAPITAL           // Vốn góp chủ sở hữu
+  INTEREST_INCOME         // Thu lãi tiền gửi
+  TAX_REFUND              // Hoàn thuế
+  INSURANCE_CLAIM         // Thu bảo hiểm
+  OTHER_INCOME            // Thu khác
+}
+
+// Phân loại chi tiền cho CASH_OUT (dùng ExpenseType)
+// CASH_OUT sẽ dùng ExpenseType vì logic tương tự
+
+enum LaborType {
+  FULL_TIME         // Toàn thời gian (HĐ >= 3 tháng)
+  CASUAL            // Thời vụ/Khoán
+  PROBATION         // Thử việc
+  NON_RESIDENT      // Không cư trú
+}
+
+// ==================== PHASE 2: INVENTORY MODELS ====================
+
+/// Stock - Tồn kho theo sản phẩm
+model Stock {
+  id              String    @id @default(uuid())
+  farm_id         String
+  product_id      String
+  
+  // Tồn kho
+  quantity        Decimal   @default(0) @db.Decimal(18, 3)
+  
+  // Giá vốn bình quân (Moving Average)
+  avg_cost        Decimal   @default(0) @db.Decimal(18, 2)
+  total_value     Decimal   @default(0) @db.Decimal(18, 2)
+  
+  // Cảnh báo
+  min_quantity    Decimal?  @db.Decimal(18, 3)
+  max_quantity    Decimal?  @db.Decimal(18, 3)
+  reorder_point   Decimal?  @db.Decimal(18, 3)
+  
+  // Vị trí
+  location_code   String?   @default("DEFAULT")
+  
+  // Meta
+  last_movement_at DateTime?
+  updated_at      DateTime  @updatedAt
+  
+  // Relations
+  farm            Farm      @relation(fields: [farm_id], references: [id])
+  product         Product   @relation(fields: [product_id], references: [id])
+  
+  @@unique([farm_id, product_id, location_code])
+  @@index([farm_id, quantity])
+  @@map("stocks")
+}
+
+/// StockMovement - Lịch sử nhập xuất kho
+model StockMovement {
+  id              String            @id @default(uuid())
+  farm_id         String
+  
+  // Loại và mã
+  type            StockMovementType
+  code            String
+  date            DateTime          @db.Date
+  
+  // Sản phẩm
+  product_id      String
+  quantity        Decimal           @db.Decimal(18, 3)
+  unit            String            @default("kg")
+  unit_price      Decimal           @db.Decimal(18, 2)
+  
+  // Giá vốn
+  avg_cost_before Decimal           @default(0) @db.Decimal(18, 2)
+  avg_cost_after  Decimal           @default(0) @db.Decimal(18, 2)
+  cogs_amount     Decimal           @default(0) @db.Decimal(18, 2)
+  
+  // Số lượng trước/sau
+  qty_before      Decimal           @default(0) @db.Decimal(18, 3)
+  qty_after       Decimal           @default(0) @db.Decimal(18, 3)
+  
+  // Vị trí
+  from_location   String?
+  to_location     String?
+  
+  // Liên kết
+  transaction_id  String?
+  partner_id      String?
+  
+  // Lý do và ghi chú
+  reason          String?
+  notes           String?
+  
+  // Meta
+  created_at      DateTime          @default(now())
+  created_by      String?
+  
+  // Relations
+  farm            Farm              @relation(fields: [farm_id], references: [id])
+  product         Product           @relation(fields: [product_id], references: [id])
+  transaction     Transaction?      @relation(fields: [transaction_id], references: [id])
+  partner         Partner?          @relation(fields: [partner_id], references: [id])
+  
+  @@unique([farm_id, code])
+  @@index([farm_id, product_id, date])
+  @@index([farm_id, type, date])
+  @@map("stock_movements")
+}
+
+/// StockCount - Phiếu kiểm kê
+model StockCount {
+  id              String           @id @default(uuid())
+  farm_id         String
+  
+  code            String
+  count_date      DateTime         @db.Date
+  status          StockCountStatus @default(DRAFT)
+  
+  total_products  Int              @default(0)
+  total_variance  Decimal          @default(0) @db.Decimal(18, 2)
+  
+  notes           String?
+  
+  completed_at    DateTime?
+  completed_by    String?
+  
+  created_at      DateTime         @default(now())
+  created_by      String?
+  
+  // Relations
+  farm            Farm             @relation(fields: [farm_id], references: [id])
+  items           StockCountItem[]
+  
+  @@unique([farm_id, code])
+  @@map("stock_counts")
+}
+
+/// StockCountItem - Chi tiết kiểm kê
+model StockCountItem {
+  id              String     @id @default(uuid())
+  stock_count_id  String
+  product_id      String
+  
+  system_qty      Decimal    @db.Decimal(18, 3)
+  counted_qty     Decimal    @db.Decimal(18, 3)
+  variance_qty    Decimal    @db.Decimal(18, 3)
+  variance_value  Decimal    @db.Decimal(18, 2)
+  
+  variance_reason String?
+  
+  // Relations
+  stock_count     StockCount @relation(fields: [stock_count_id], references: [id], onDelete: Cascade)
+  product         Product    @relation(fields: [product_id], references: [id])
+  
+  @@unique([stock_count_id, product_id])
+  @@map("stock_count_items")
+}
+
+// ==================== PHASE 2: AR/AP MODELS ====================
+
+/// ARTransaction - Công nợ phải thu
+model ARTransaction {
+  id              String            @id @default(uuid())
+  farm_id         String
+  
+  customer_id     String
+  
+  type            ARTransactionType
+  code            String
+  trans_date      DateTime          @db.Date
+  
+  amount          Decimal           @db.Decimal(18, 2)
+  paid_amount     Decimal           @default(0) @db.Decimal(18, 2)
+  balance         Decimal           @db.Decimal(18, 2)
+  
+  due_date        DateTime?         @db.Date
+  days_overdue    Int               @default(0)
+  
+  status          ARAPStatus        @default(UNPAID)
+  
+  transaction_id  String?
+  
+  description     String?
+  notes           String?
+  
+  created_at      DateTime          @default(now())
+  updated_at      DateTime          @updatedAt
+  deleted_at      DateTime?
+  
+  // Relations
+  farm            Farm              @relation(fields: [farm_id], references: [id])
+  customer        Partner           @relation("CustomerAR", fields: [customer_id], references: [id])
+  transaction     Transaction?      @relation("TransactionAR", fields: [transaction_id], references: [id])
+  payments        ARPaymentAllocation[]
+  
+  @@unique([farm_id, code])
+  @@index([farm_id, customer_id])
+  @@index([farm_id, status])
+  @@index([farm_id, due_date])
+  @@map("ar_transactions")
+}
+
+/// ARPaymentAllocation - Phân bổ thanh toán AR
+model ARPaymentAllocation {
+  id                String        @id @default(uuid())
+  farm_id           String
+  
+  ar_transaction_id String
+  payment_id        String
+  
+  amount            Decimal       @db.Decimal(18, 2)
+  allocated_at      DateTime      @default(now())
+  
+  // Relations
+  ar_transaction    ARTransaction @relation(fields: [ar_transaction_id], references: [id])
+  
+  @@index([ar_transaction_id])
+  @@map("ar_payment_allocations")
+}
+
+/// APTransaction - Công nợ phải trả
+model APTransaction {
+  id              String            @id @default(uuid())
+  farm_id         String
+  
+  vendor_id       String
+  
+  type            APTransactionType
+  code            String
+  trans_date      DateTime          @db.Date
+  
+  amount          Decimal           @db.Decimal(18, 2)
+  paid_amount     Decimal           @default(0) @db.Decimal(18, 2)
+  balance         Decimal           @db.Decimal(18, 2)
+  
+  due_date        DateTime?         @db.Date
+  days_overdue    Int               @default(0)
+  
+  status          ARAPStatus        @default(UNPAID)
+  
+  transaction_id  String?
+  
+  description     String?
+  notes           String?
+  
+  created_at      DateTime          @default(now())
+  updated_at      DateTime          @updatedAt
+  deleted_at      DateTime?
+  
+  // Relations
+  farm            Farm              @relation(fields: [farm_id], references: [id])
+  vendor          Partner           @relation("VendorAP", fields: [vendor_id], references: [id])
+  transaction     Transaction?      @relation("TransactionAP", fields: [transaction_id], references: [id])
+  payments        APPaymentAllocation[]
+  
+  @@unique([farm_id, code])
+  @@index([farm_id, vendor_id])
+  @@index([farm_id, status])
+  @@index([farm_id, due_date])
+  @@map("ap_transactions")
+}
+
+/// APPaymentAllocation - Phân bổ thanh toán AP
+model APPaymentAllocation {
+  id                String        @id @default(uuid())
+  farm_id           String
+  
+  ap_transaction_id String
+  payment_id        String
+  
+  amount            Decimal       @db.Decimal(18, 2)
+  allocated_at      DateTime      @default(now())
+  
+  // Relations
+  ap_transaction    APTransaction @relation(fields: [ap_transaction_id], references: [id])
+  
+  @@index([ap_transaction_id])
+  @@map("ap_payment_allocations")
+}
+
+// ==================== PHASE 2: TAX & PERIOD LOCK MODELS ====================
+
+/// PeriodLock - Khóa sổ kế toán theo kỳ
+model PeriodLock {
+  id                String      @id @default(uuid())
+  farm_id           String
+  
+  period_type       String      // MONTH, QUARTER, YEAR
+  period_code       String      // "2024-12", "2024-Q4", "2024"
+  from_date         DateTime    @db.Date
+  to_date           DateTime    @db.Date
+  
+  status            LockStatus  @default(OPEN)
+  
+  locked_at         DateTime?
+  locked_by         String?
+  lock_reason       String?
+  
+  unlocked_at       DateTime?
+  unlocked_by       String?
+  unlock_reason     String?
+  
+  // Tamper-proof hash chain
+  hash              String?
+  previous_hash     String?
+  
+  created_at        DateTime    @default(now())
+  updated_at        DateTime    @updatedAt
+  
+  // Relations
+  farm              Farm        @relation(fields: [farm_id], references: [id])
+  locked_by_user    User?       @relation("PeriodLockedBy", fields: [locked_by], references: [id])
+  unlocked_by_user  User?       @relation("PeriodUnlockedBy", fields: [unlocked_by], references: [id])
+  
+  @@unique([farm_id, period_code])
+  @@index([farm_id, status])
+  @@index([farm_id, from_date, to_date])
+  @@map("period_locks")
+}
+
+/// VATDeclaration - Tờ khai thuế GTGT
+model VATDeclaration {
+  id                  String                @id @default(uuid())
+  farm_id             String
+  
+  period_type         VATPeriodType
+  period_code         String
+  from_date           DateTime              @db.Date
+  to_date             DateTime              @db.Date
+  
+  input_vat_count     Int       @default(0)
+  input_vat_amount    Decimal   @default(0) @db.Decimal(18, 2)
+  input_vat_tax       Decimal   @default(0) @db.Decimal(18, 2)
+  
+  output_vat_count    Int       @default(0)
+  output_vat_amount   Decimal   @default(0) @db.Decimal(18, 2)
+  output_vat_tax      Decimal   @default(0) @db.Decimal(18, 2)
+  
+  payable_vat         Decimal   @default(0) @db.Decimal(18, 2)
+  carried_forward     Decimal   @default(0) @db.Decimal(18, 2)
+  
+  adjustment_amount   Decimal   @default(0) @db.Decimal(18, 2)
+  adjustment_reason   String?
+  
+  xml_content         String?   @db.Text
+  xml_file_url        String?
+  xml_generated_at    DateTime?
+  
+  status              VATDeclarationStatus @default(DRAFT)
+  
+  submitted_at        DateTime?
+  submitted_by        String?
+  submission_ref      String?
+  
+  notes               String?
+  
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+  created_by          String?
+  
+  // Relations
+  farm                Farm      @relation(fields: [farm_id], references: [id])
+  
+  @@unique([farm_id, period_code])
+  @@index([farm_id, status])
+  @@index([farm_id, from_date, to_date])
+  @@map("vat_declarations")
+}
+
+// ==================== PHASE 2: SECURITY MODELS ====================
+
+/// UserSession - Quản lý phiên đăng nhập
+model UserSession {
+  id              String    @id @default(uuid())
+  user_id         String
+  
+  token           String    @unique
+  refresh_token   String?   @unique
+  
+  ip_address      String?
+  user_agent      String?
+  device_name     String?
+  device_type     String?
+  
+  login_at        DateTime  @default(now())
+  last_activity   DateTime  @updatedAt
+  expires_at      DateTime
+  
+  is_active       Boolean   @default(true)
+  revoked_at      DateTime?
+  revoke_reason   String?
+  
+  // Relations
+  user            User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  
+  @@index([user_id, is_active])
+  @@index([token])
+  @@index([expires_at])
+  @@map("user_sessions")
+}
+
+/// FailedLogin - Theo dõi đăng nhập thất bại
+model FailedLogin {
+  id               String    @id @default(uuid())
+  
+  login_identifier String    // Email hoặc phone
+  ip_address       String
+  user_agent       String?
+  
+  failure_reason   String    // WRONG_PASSWORD, USER_NOT_FOUND, ACCOUNT_LOCKED, ACCOUNT_INACTIVE
+  
+  attempted_at     DateTime  @default(now())
+  
+  @@index([login_identifier, attempted_at])
+  @@index([ip_address, attempted_at])
+  @@map("failed_logins")
+}
+
+// ==================== PHASE 2: TAX PACKAGE EXPORT ====================
+
+/// TaxPackageExport - Lịch sử xuất hồ sơ thuế
+model TaxPackageExport {
+  id              String    @id @default(uuid())
+  farm_id         String
+  
+  // Kỳ khai
+  period_type     String    // MONTHLY, QUARTERLY
+  period_code     String    // "2024-12", "2024-Q4"
+  
+  // File info
+  file_name       String
+  file_size       Int       // bytes
+  file_url        String
+  
+  // Contents
+  contents        Json?     @db.JsonB  // { xml_included, reports_count, images_count }
+  
+  // Metadata
+  notes           String?
+  created_by      String
+  created_at      DateTime  @default(now())
+  
+  // Download tracking
+  download_count      Int       @default(0)
+  last_downloaded_at  DateTime?
+  
+  // Relations
+  farm            Farm      @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  created_by_user User      @relation(fields: [created_by], references: [id])
+  
+  @@index([farm_id, period_code])
+  @@index([farm_id, created_at])
+  @@map("tax_package_exports")
+}
+
+// ==================== PHASE 3: TAX ENGINE MODELS ====================
+
+/// TaxRuleHistory - Lịch sử thay đổi quy tắc thuế
+model TaxRuleHistory {
+  id              String          @id @default(uuid())
+  tax_rule_id     String
+  farm_id         String
+  
+  // Hành động
+  action          String          // SYNC_CREATE, SYNC_UPDATE, USER_OVERRIDE, USER_RESET
+  
+  // Giá trị
+  old_value       Decimal?        @db.Decimal(18, 2)
+  new_value       Decimal?        @db.Decimal(18, 2)
+  
+  // Sync info
+  master_version  Int?
+  
+  // Ghi chú
+  note            String?
+  
+  // Meta
+  created_at      DateTime        @default(now())
+  created_by      String?
+  
+  // Relations
+  tax_rule        TaxRule         @relation(fields: [tax_rule_id], references: [id], onDelete: Cascade)
+  
+  @@index([tax_rule_id, created_at])
+  @@index([farm_id, created_at])
+  @@map("tax_rule_histories")
+}
+
+/// CITCalculation - Tính thuế TNDN (Quý/Năm)
+model CITCalculation {
+  id                  String            @id @default(uuid())
+  farm_id             String
+  
+  // Kỳ tính
+  period              String            // "2024-Q4" hoặc "2024"
+  period_type         CITPeriodType     @default(QUARTERLY)
+  
+  // Thu nhập
+  total_revenue       Decimal           @default(0) @db.Decimal(18, 2)  // Doanh thu
+  other_income        Decimal           @default(0) @db.Decimal(18, 2)  // Thu nhập khác
+  
+  // Chi phí
+  total_expenses      Decimal           @default(0) @db.Decimal(18, 2)  // Tổng chi phí
+  
+  // Lợi nhuận kế toán
+  accounting_profit   Decimal           @default(0) @db.Decimal(18, 2)
+  
+  // Điều chỉnh
+  add_backs           Decimal           @default(0) @db.Decimal(18, 2)  // Điều chỉnh tăng
+  deductions          Decimal           @default(0) @db.Decimal(18, 2)  // Điều chỉnh giảm
+  
+  // Kết quả
+  taxable_income      Decimal           @default(0) @db.Decimal(18, 2)  // Thu nhập chịu thuế
+  tax_rate            Decimal           @default(20) @db.Decimal(5, 2)  // Thuế suất (20%)
+  cit_amount          Decimal           @default(0) @db.Decimal(18, 2)  // Thuế TNDN phải nộp
+  
+  // Lỗ chuyển kỳ sau
+  loss_carried        Decimal           @default(0) @db.Decimal(18, 2)
+  
+  // Trạng thái
+  status              String            @default("DRAFT")  // DRAFT, CALCULATED, SUBMITTED
+  calculated_at       DateTime?
+  
+  // Meta
+  created_at          DateTime          @default(now())
+  updated_at          DateTime          @updatedAt
+  created_by          String?
+  
+  // Relations
+  farm                Farm              @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  adjustments         CITAdjustment[]
+  
+  @@unique([farm_id, period])
+  @@index([farm_id, period_type])
+  @@index([farm_id, status])
+  @@map("cit_calculations")
+}
+
+/// CITAdjustment - Chi tiết điều chỉnh TNDN
+model CITAdjustment {
+  id                  String              @id @default(uuid())
+  cit_calculation_id  String
+  
+  // Loại điều chỉnh
+  adjustment_type     CITAdjustmentType
+  category            String              // ENTERTAINMENT, NO_CONTRACT_SALARY, DEPRECIATION_EXCESS, etc.
+  
+  // Chi tiết
+  description         String
+  amount              Decimal             @db.Decimal(18, 2)
+  
+  // Liên kết giao dịch (nếu có)
+  transaction_id      String?
+  
+  // Meta
+  created_at          DateTime            @default(now())
+  
+  // Relations
+  cit_calculation     CITCalculation      @relation(fields: [cit_calculation_id], references: [id], onDelete: Cascade)
+  transaction         Transaction?        @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
+  
+  @@index([cit_calculation_id])
+  @@index([adjustment_type, category])
+  @@map("cit_adjustments")
+}
+
+/// PITCalculation - Tính thuế TNCN (theo nhân viên/tháng)
+model PITCalculation {
+  id                  String          @id @default(uuid())
+  farm_id             String
+  employee_id         String          // Worker ID
+  
+  // Kỳ tính
+  period              String          // "2024-12"
+  
+  // Thu nhập
+  gross_income        Decimal         @db.Decimal(18, 2)
+  
+  // Các khoản giảm trừ
+  insurance_deduction Decimal         @default(0) @db.Decimal(18, 2)  // BHXH 10.5%
+  family_deduction    Decimal         @default(0) @db.Decimal(18, 2)  // Giảm trừ bản thân (11tr)
+  dependent_deduction Decimal         @default(0) @db.Decimal(18, 2)  // Giảm trừ NPT (4.4tr/người)
+  other_deduction     Decimal         @default(0) @db.Decimal(18, 2)  // Giảm trừ khác
+  total_deduction     Decimal         @default(0) @db.Decimal(18, 2)  // Tổng giảm trừ
+  
+  // Tính thuế
+  taxable_income      Decimal         @default(0) @db.Decimal(18, 2)  // Thu nhập tính thuế
+  pit_amount          Decimal         @default(0) @db.Decimal(18, 2)  // Thuế TNCN
+  
+  // Chi tiết bậc thuế (JSON)
+  tax_brackets        Json?           @db.JsonB  // [{ bracket: 1, rate: 5, amount: 250000 }, ...]
+  
+  // Số người phụ thuộc
+  dependents_count    Int             @default(0)
+  
+  // Liên kết
+  payroll_id          String?         // Link đến bảng lương (nếu có)
+  
+  // Meta
+  calculated_at       DateTime?
+  created_at          DateTime        @default(now())
+  updated_at          DateTime        @updatedAt
+  
+  // Relations
+  farm                Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  employee            Worker          @relation(fields: [employee_id], references: [id])
+  
+  @@unique([farm_id, employee_id, period])
+  @@index([farm_id, period])
+  @@index([employee_id, period])
+  @@map("pit_calculations")
+}
+
+// ==================== PHASE 3: FIXED ASSETS MODELS ====================
+
+/// Asset - Tài sản cố định
+model Asset {
+  id                      String              @id @default(uuid())
+  farm_id                 String
+  
+  // Mã và tên
+  code                    String
+  name                    String
+  
+  // Phân loại
+  category                AssetCategory
+  
+  // Thông tin mua
+  purchase_date           DateTime            @db.Date
+  purchase_price          Decimal             @db.Decimal(18, 2)
+  supplier                String?
+  invoice_number          String?
+  
+  // Khấu hao
+  useful_life_months      Int                 // Thời gian sử dụng (tháng)
+  depreciation_method     DepreciationMethod  @default(STRAIGHT_LINE)
+  monthly_depreciation    Decimal             @default(0) @db.Decimal(18, 2)
+  residual_value          Decimal             @default(0) @db.Decimal(18, 2)  // Giá trị còn lại dự kiến
+  
+  // Giá trị
+  original_cost           Decimal             @db.Decimal(18, 2)
+  accumulated_depreciation Decimal            @default(0) @db.Decimal(18, 2)
+  book_value              Decimal             @db.Decimal(18, 2)
+  
+  // Vị trí và thông tin
+  location                String?
+  serial_number           String?
+  image_url               String?
+  
+  // Trạng thái
+  status                  AssetStatus         @default(ACTIVE)
+  
+  // ==================== TAX ENGINE 2025 ====================
+  // For CIT_DEPRECIATION_CAP rule (xe dưới 9 chỗ > 1.6B)
+  max_deductible_value    Decimal?            @db.Decimal(18, 2)  // 1.6B cho xe < 9 chỗ
+  is_transport_biz        Boolean             @default(false)      // DN vận tải được trừ full
+  // ==================== END TAX ENGINE 2025 ====================
+  
+  // Thanh lý (nếu có)
+  disposed_at             DateTime?
+  disposed_value          Decimal?            @db.Decimal(18, 2)
+  disposal_reason         String?
+  
+  // Meta
+  created_at              DateTime            @default(now())
+  updated_at              DateTime            @updatedAt
+  created_by              String?
+  
+  // Relations
+  farm                    Farm                @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  depreciation_schedules  DepreciationSchedule[]
+  
+  @@unique([farm_id, code])
+  @@index([farm_id, category])
+  @@index([farm_id, status])
+  @@map("assets")
+}
+
+/// DepreciationSchedule - Bảng khấu hao chi tiết
+model DepreciationSchedule {
+  id                  String          @id @default(uuid())
+  asset_id            String
+  
+  // Kỳ khấu hao
+  period              String          // "2024-12"
+  
+  // Số tiền
+  depreciation_amount Decimal         @db.Decimal(18, 2)
+  accumulated_amount  Decimal         @db.Decimal(18, 2)  // Lũy kế đến kỳ này
+  remaining_value     Decimal         @db.Decimal(18, 2)  // Giá trị còn lại
+  
+  // Đã hạch toán chưa
+  is_posted           Boolean         @default(false)
+  posted_at           DateTime?
+  
+  // Meta
+  created_at          DateTime        @default(now())
+  
+  // Relations
+  asset               Asset           @relation(fields: [asset_id], references: [id], onDelete: Cascade)
+  
+  @@unique([asset_id, period])
+  @@index([period, is_posted])
+  @@map("depreciation_schedules")
+}
+
+// ==================== PHASE 3: TAX SCHEDULE ====================
+
+/// TaxSchedule - Lịch nộp thuế
+model TaxSchedule {
+  id              String              @id @default(uuid())
+  farm_id         String
+  
+  // Loại thuế
+  tax_type        TaxType
+  
+  // Kỳ khai/nộp
+  period          String              // "2024-Q4", "2024-12", "2024"
+  
+  // Hạn nộp
+  due_date        DateTime            @db.Date
+  
+  // Trạng thái
+  status          TaxScheduleStatus   @default(PENDING)
+  
+  // Số tiền (nếu đã tính)
+  amount          Decimal?            @db.Decimal(18, 2)
+  
+  // Nhắc nhở
+  reminded_at     DateTime?
+  reminder_count  Int                 @default(0)
+  
+  // Đã nộp
+  submitted_at    DateTime?
+  paid_at         DateTime?
+  payment_ref     String?             // Mã tham chiếu thanh toán
+  
+  // Liên kết tờ khai
+  vat_declaration_id String?
+  cit_calculation_id String?
+  
+  // Meta
+  created_at      DateTime            @default(now())
+  updated_at      DateTime            @updatedAt
+  
+  // Relations
+  farm            Farm                @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  
+  @@unique([farm_id, tax_type, period])
+  @@index([farm_id, status])
+  @@index([farm_id, due_date])
+  @@index([due_date, status])
+  @@map("tax_schedules")
+}
+
+// ==================== TAX ENGINE 2025: NEW MODELS ====================
+
+/// MaterialNorm - Định mức nguyên vật liệu (cho CIT_MATERIALS_EXCESS rule)
+model MaterialNorm {
+  id              String    @id @default(uuid())
+  farm_id         String
+  product_id      String
+  
+  // Định mức
+  norm_quantity   Decimal   @db.Decimal(18, 4)  // Định mức cho 1 đơn vị sản phẩm
+  unit            String?                        // Đơn vị tính
+  period          String                         // "2024-Q1", "2024", hoặc "ALL"
+  
+  // Ghi chú
+  notes           String?
+  
+  // Meta
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  
+  // Relations
+  farm            Farm      @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  product         Product   @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  
+  @@unique([farm_id, product_id, period])
+  @@index([farm_id])
+  @@map("material_norms")
+}
+
+/// WelfareExpense - Chi phí phúc lợi (cho CIT_WELFARE_CAP rule)
+model WelfareExpense {
+  id              String    @id @default(uuid())
+  farm_id         String
+  worker_id       String?
+  
+  // Chi tiết
+  welfare_type    String                         // WEDDING, FUNERAL, TRAVEL, SCHOOL_FEES, OTHER
+  amount          Decimal   @db.Decimal(18, 2)
+  period          String                         // "2024"
+  description     String?
+  expense_date    DateTime? @db.Date
+  
+  // Tracking aggregate
+  is_capped       Boolean   @default(false)      // TRUE nếu vượt welfare cap
+  capped_amount   Decimal?  @db.Decimal(18, 2)   // Số tiền vượt cap
+  
+  // Meta
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  
+  // Relations
+  farm            Farm      @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  worker          Worker?   @relation(fields: [worker_id], references: [id], onDelete: SetNull)
+  
+  @@index([farm_id, period])
+  @@index([worker_id])
+  @@map("welfare_expenses")
 }

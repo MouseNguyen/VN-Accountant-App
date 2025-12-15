@@ -1,12 +1,15 @@
 // src/services/audit-log.service.ts
 // Service ghi log các thao tác quan trọng (Audit Trail)
 // Hỗ trợ truy vết ai làm gì, lúc nào, thay đổi những gì
+// Tamper-proof với hash chain
 
 import { prismaBase } from '@/lib/prisma';
 import { getAuditInfo, getCurrentFarmIdOrNull } from '@/lib/context';
+import { createHash } from 'crypto';
+import type { AuditLogListParams, AuditLogListResponse, AuditLog as AuditLogType } from '@/types/security';
 
 // Define AuditAction type (matches Prisma enum)
-export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE' | 'LOGIN' | 'LOGOUT';
+export type AuditAction = 'CREATE' | 'UPDATE' | 'DELETE' | 'RESTORE' | 'LOGIN' | 'LOGOUT' | 'EXPORT' | 'IMPORT' | 'PERIOD_LOCK' | 'PERIOD_UNLOCK' | 'VAT_SUBMIT' | 'PASSWORD_CHANGE';
 
 // ==========================================
 // TYPES
@@ -19,6 +22,7 @@ export interface AuditLogInput {
     action: AuditAction;
     entityType: string;     // Tên model: 'Transaction', 'Product', 'Partner', etc.
     entityId: string;       // ID của record
+    entityName?: string;    // Tên hiển thị của entity
     oldValues?: object;     // Giá trị cũ (cho UPDATE, DELETE)
     newValues?: object;     // Giá trị mới (cho CREATE, UPDATE)
     description?: string;   // Mô tả thêm
@@ -69,7 +73,46 @@ const ACTION_LABELS: Record<AuditAction, string> = {
     RESTORE: 'Khôi phục',
     LOGIN: 'Đăng nhập',
     LOGOUT: 'Đăng xuất',
+    EXPORT: 'Xuất dữ liệu',
+    IMPORT: 'Nhập dữ liệu',
+    PERIOD_LOCK: 'Khóa sổ',
+    PERIOD_UNLOCK: 'Mở khóa sổ',
+    VAT_SUBMIT: 'Nộp tờ khai VAT',
+    PASSWORD_CHANGE: 'Đổi mật khẩu',
 };
+
+// ==========================================
+// HASH CHAIN FUNCTIONS
+// ==========================================
+
+/**
+ * Tạo hash cho audit log entry (đảm bảo tamper-proof)
+ */
+function generateAuditHash(
+    farmId: string,
+    userId: string | null,
+    action: string,
+    entityType: string,
+    entityId: string,
+    oldValues: unknown,
+    newValues: unknown,
+    previousHash: string,
+    timestamp: string
+): string {
+    const hashData = JSON.stringify({
+        farm_id: farmId,
+        user_id: userId,
+        action,
+        entity_type: entityType,
+        entity_id: entityId,
+        old_values: oldValues,
+        new_values: newValues,
+        previous_hash: previousHash,
+        timestamp,
+    });
+
+    return createHash('sha256').update(hashData).digest('hex');
+}
 
 // ==========================================
 // HELPER FUNCTIONS
@@ -178,6 +221,31 @@ export async function createAuditLog(input: AuditLogInput): Promise<void> {
         }
 
         const changedFields = getChangedFields(input.oldValues, input.newValues);
+        const sanitizedOld = input.oldValues ? JSON.parse(JSON.stringify(sanitizeValues(input.oldValues))) : null;
+        const sanitizedNew = input.newValues ? JSON.parse(JSON.stringify(sanitizeValues(input.newValues))) : null;
+
+        // Get previous hash for chain
+        const previousLog = await prismaBase.auditLog.findFirst({
+            where: { farm_id: farmId },
+            orderBy: { created_at: 'desc' },
+            select: { hash: true },
+        });
+
+        const previousHash = previousLog?.hash || 'GENESIS';
+        const timestamp = new Date().toISOString();
+
+        // Generate tamper-proof hash
+        const hash = generateAuditHash(
+            farmId,
+            userId,
+            input.action,
+            input.entityType,
+            input.entityId,
+            sanitizedOld,
+            sanitizedNew,
+            previousHash,
+            timestamp
+        );
 
         await prismaBase.auditLog.create({
             data: {
@@ -186,17 +254,85 @@ export async function createAuditLog(input: AuditLogInput): Promise<void> {
                 action: input.action,
                 entity_type: input.entityType,
                 entity_id: input.entityId,
-                old_values: input.oldValues ? JSON.parse(JSON.stringify(sanitizeValues(input.oldValues))) : undefined,
-                new_values: input.newValues ? JSON.parse(JSON.stringify(sanitizeValues(input.newValues))) : undefined,
+                entity_name: input.entityName,
+                old_values: sanitizedOld,
+                new_values: sanitizedNew,
                 changed_fields: changedFields,
                 ip_address: ipAddress,
                 user_agent: userAgent,
                 description: input.description,
+                hash,
+                previous_hash: previousHash,
             },
         });
     } catch (error) {
         // Không throw error để không ảnh hưởng business logic
         console.error('Failed to create audit log:', error);
+    }
+}
+
+/**
+ * Ghi audit log trực tiếp (cho login/logout và các trường hợp không có context)
+ */
+export interface DirectAuditLogInput {
+    farmId: string;
+    userId: string;
+    action: AuditAction;
+    entityType: string;
+    entityId: string;
+    entityName?: string;
+    description?: string;
+    ipAddress?: string;
+    userAgent?: string;
+    oldValues?: object;
+    newValues?: object;
+}
+
+export async function createDirectAuditLog(input: DirectAuditLogInput): Promise<void> {
+    try {
+        // Get previous hash for chain
+        const previousLog = await prismaBase.auditLog.findFirst({
+            where: { farm_id: input.farmId },
+            orderBy: { created_at: 'desc' },
+            select: { hash: true },
+        });
+
+        const previousHash = previousLog?.hash || 'GENESIS';
+        const timestamp = new Date().toISOString();
+
+        // Generate tamper-proof hash
+        const hash = generateAuditHash(
+            input.farmId,
+            input.userId,
+            input.action,
+            input.entityType,
+            input.entityId,
+            input.oldValues || null,
+            input.newValues || null,
+            previousHash,
+            timestamp
+        );
+
+        await prismaBase.auditLog.create({
+            data: {
+                farm_id: input.farmId,
+                user_id: input.userId,
+                action: input.action,
+                entity_type: input.entityType,
+                entity_id: input.entityId,
+                entity_name: input.entityName,
+                old_values: input.oldValues ? JSON.stringify(input.oldValues) : undefined,
+                new_values: input.newValues ? JSON.stringify(input.newValues) : undefined,
+                changed_fields: [],
+                ip_address: input.ipAddress,
+                user_agent: input.userAgent,
+                description: input.description,
+                hash,
+                previous_hash: previousHash,
+            },
+        });
+    } catch (error) {
+        console.error('Failed to create direct audit log:', error);
     }
 }
 
@@ -318,6 +454,137 @@ export async function getActivityStats(
     }
 
     return Array.from(statsMap.entries()).map(([date, count]) => ({ date, count }));
+}
+
+// ==========================================
+// GET AUDIT LOGS WITH FILTERS
+// ==========================================
+
+/**
+ * Lấy danh sách audit logs với filters và pagination
+ */
+export async function getAuditLogs(
+    farmId: string,
+    params: AuditLogListParams
+): Promise<AuditLogListResponse> {
+    const { page = 1, limit = 50 } = params;
+    const skip = (page - 1) * limit;
+
+    const where: Record<string, unknown> = { farm_id: farmId };
+
+    if (params.user_id) where.user_id = params.user_id;
+    if (params.action) where.action = params.action;
+    if (params.entity_type) where.entity_type = params.entity_type;
+
+    if (params.date_from || params.date_to) {
+        where.created_at = {};
+        if (params.date_from) (where.created_at as Record<string, Date>).gte = new Date(params.date_from);
+        if (params.date_to) (where.created_at as Record<string, Date>).lte = new Date(params.date_to);
+    }
+
+    if (params.search) {
+        where.OR = [
+            { description: { contains: params.search, mode: 'insensitive' } },
+            { entity_name: { contains: params.search, mode: 'insensitive' } },
+        ];
+    }
+
+    const [items, total] = await Promise.all([
+        prismaBase.auditLog.findMany({
+            where,
+            include: { user: { select: { id: true, full_name: true, email: true } } },
+            orderBy: { created_at: 'desc' },
+            skip,
+            take: limit,
+        }),
+        prismaBase.auditLog.count({ where }),
+    ]);
+
+    return {
+        items: items.map(formatAuditLog),
+        total,
+        page,
+        limit,
+    };
+}
+
+/**
+ * Format audit log for API response
+ */
+function formatAuditLog(log: any): AuditLogType {
+    return {
+        id: log.id,
+        farm_id: log.farm_id,
+        user_id: log.user_id,
+        user_name: log.user?.full_name,
+        action: log.action,
+        entity_type: log.entity_type,
+        entity_id: log.entity_id,
+        entity_name: log.entity_name,
+        description: log.description,
+        old_values: log.old_values,
+        new_values: log.new_values,
+        changed_fields: log.changed_fields,
+        ip_address: log.ip_address,
+        user_agent: log.user_agent,
+        hash: log.hash,
+        previous_hash: log.previous_hash,
+        created_at: log.created_at.toISOString(),
+    };
+}
+
+// ==========================================
+// VERIFY HASH CHAIN
+// ==========================================
+
+/**
+ * Xác minh tính toàn vẹn của chuỗi audit log
+ * Phát hiện nếu có log bị sửa đổi
+ */
+export async function verifyAuditLogChain(farmId: string): Promise<{
+    is_valid: boolean;
+    issues: Array<{ log_id: string; issue: string }>;
+    checked_count: number;
+}> {
+    const logs = await prismaBase.auditLog.findMany({
+        where: { farm_id: farmId },
+        orderBy: { created_at: 'asc' },
+        select: { id: true, hash: true, previous_hash: true, created_at: true },
+    });
+
+    const issues: Array<{ log_id: string; issue: string }> = [];
+
+    for (let i = 0; i < logs.length; i++) {
+        const log = logs[i];
+
+        // Skip logs without hash (created before hash chain)
+        if (!log.hash) continue;
+
+        if (i === 0) {
+            // First log should have GENESIS or null previous_hash
+            if (log.previous_hash && log.previous_hash !== 'GENESIS') {
+                issues.push({
+                    log_id: log.id,
+                    issue: 'Log đầu tiên có previous_hash không hợp lệ',
+                });
+            }
+        } else {
+            // Subsequent logs should chain to previous
+            const prevLog = logs[i - 1];
+            if (prevLog.hash && log.previous_hash !== prevLog.hash) {
+                issues.push({
+                    log_id: log.id,
+                    issue: 'Chuỗi hash bị đứt - log có thể đã bị sửa đổi',
+                });
+            }
+        }
+    }
+
+    return {
+        is_valid: issues.length === 0,
+        issues,
+        checked_count: logs.length,
+    };
 }
 
 // ==========================================

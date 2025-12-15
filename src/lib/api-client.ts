@@ -68,6 +68,7 @@ class ApiClient {
                 method,
                 headers: requestHeaders,
                 body: body ? JSON.stringify(body) : undefined,
+                credentials: 'include', // Include cookies for authentication
             });
 
             const data = await response.json();

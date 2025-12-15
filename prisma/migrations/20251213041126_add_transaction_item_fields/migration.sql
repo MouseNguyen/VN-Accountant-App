@@ -1,0 +1,7 @@
+-- AlterTable
+ALTER TABLE "transaction_items" ADD COLUMN     "discount_amount" DECIMAL(18,2) NOT NULL DEFAULT 0,
+ADD COLUMN     "discount_percent" DECIMAL(5,2) NOT NULL DEFAULT 0,
+ADD COLUMN     "line_total" DECIMAL(18,2) NOT NULL DEFAULT 0,
+ADD COLUMN     "tax_amount" DECIMAL(18,2) NOT NULL DEFAULT 0,
+ADD COLUMN     "tax_rate" DECIMAL(5,2) NOT NULL DEFAULT 0,
+ADD COLUMN     "unit_cost" DECIMAL(18,2) NOT NULL DEFAULT 0;

@@ -1,0 +1,2 @@
+-- CreateEnum
+CREATE TYPE "AttendanceType" AS ENUM ('PRESENT', 'ABSENT', 'HALF_DAY', 'LATE', 'EARLY_LEAVE', 'OVERTIME');
