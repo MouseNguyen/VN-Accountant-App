@@ -226,6 +226,16 @@ model Farm {
   // Tax Engine 2025
   material_norms    MaterialNorm[]
   welfare_expenses  WelfareExpense[]
+  // Phase 4: AR/AP Invoices
+  ar_invoices       ARInvoice[]
+  ar_invoice_lines  ARInvoiceLine[]
+  ar_payments       ARPayment[]
+  ar_invoice_payment_allocations ARInvoicePaymentAllocation[]
+  ap_invoices       APInvoice[]
+  ap_invoice_lines  APInvoiceLine[]
+  ap_payments       APPayment[]
+  ap_invoice_payment_allocations APInvoicePaymentAllocation[]
+  bank_accounts     BankAccount[]
   
   @@map("farms")
 }
@@ -514,6 +524,11 @@ model Partner {
   ar_transactions ARTransaction[] @relation("CustomerAR")
   ap_transactions APTransaction[] @relation("VendorAP")
   payment_histories PaymentHistory[]
+  // Phase 4: AR/AP Invoices
+  ar_invoices_customer ARInvoice[] @relation("ARInvoiceCustomer")
+  ar_payments_customer ARPayment[] @relation("ARPaymentCustomer")
+  ap_invoices_vendor   APInvoice[] @relation("APInvoiceVendor")
+  ap_payments_vendor   APPayment[] @relation("APPaymentVendor")
   
   @@unique([farm_id, code])
   @@index([farm_id, partner_type])
@@ -569,6 +584,9 @@ model Product {
   stock_count_items StockCountItem[]
   // Tax Engine 2025
   material_norms   MaterialNorm[]
+  // Phase 4: AR/AP Invoice Lines
+  ar_invoice_lines ARInvoiceLine[]
+  ap_invoice_lines APInvoiceLine[]
   
   @@unique([farm_id, code])
   @@index([farm_id, category])
@@ -2224,3 +2242,340 @@ model WelfareExpense {
   @@index([worker_id])
   @@map("welfare_expenses")
 }
+
+// ============================================================================
+// PHASE 4: AR/AP INVOICES SYSTEM
+// ============================================================================
+
+/// AR Invoice Status - Trạng thái hóa đơn bán hàng
+enum ARInvoiceStatus {
+  DRAFT           // Nháp
+  POSTED          // Đã ghi sổ
+  PARTIALLY_PAID  // Thanh toán một phần
+  PAID            // Đã thanh toán đủ
+  OVERDUE         // Quá hạn
+  VOID            // Đã hủy
+}
+
+/// AP Invoice Status - Trạng thái hóa đơn mua hàng
+enum APInvoiceStatus {
+  DRAFT           // Nháp
+  POSTED          // Đã ghi sổ
+  PARTIALLY_PAID  // Thanh toán một phần
+  PAID            // Đã thanh toán đủ
+  OVERDUE         // Quá hạn
+  VOID            // Đã hủy
+}
+
+/// ARInvoice - Hóa đơn bán hàng
+model ARInvoice {
+  id                String          @id @default(uuid())
+  farm_id           String
+  invoice_number    String                              // INV-2025-00001
+  invoice_date      DateTime        @db.Date
+  customer_id       String
+  
+  // Amounts
+  sub_total         Decimal         @db.Decimal(18, 2)
+  discount_amount   Decimal         @default(0) @db.Decimal(18, 2)
+  tax_amount        Decimal         @db.Decimal(18, 2)
+  total_amount      Decimal         @db.Decimal(18, 2)
+  paid_amount       Decimal         @default(0) @db.Decimal(18, 2)
+  
+  // Terms
+  due_date          DateTime        @db.Date
+  payment_term_days Int             @default(30)
+  
+  // Status
+  status            ARInvoiceStatus @default(DRAFT)
+  posted_at         DateTime?
+  posted_by         String?
+  
+  // Description
+  description       String?
+  notes             String?
+  
+  // Journal Entry link
+  journal_entry_id  String?
+  
+  // Meta
+  created_at        DateTime        @default(now())
+  updated_at        DateTime        @updatedAt
+  created_by        String?
+  
+  // Relations
+  farm              Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  customer          Partner         @relation("ARInvoiceCustomer", fields: [customer_id], references: [id])
+  lines             ARInvoiceLine[]
+  allocations       ARInvoicePaymentAllocation[]
+  
+  @@unique([farm_id, invoice_number])
+  @@index([farm_id, status])
+  @@index([customer_id])
+  @@index([due_date])
+  @@map("ar_invoices")
+}
+
+/// ARInvoiceLine - Chi tiết hóa đơn bán hàng
+model ARInvoiceLine {
+  id                String          @id @default(uuid())
+  farm_id           String
+  invoice_id        String
+  line_number       Int
+  
+  // Product
+  product_id        String?
+  product_name      String
+  unit              String?
+  
+  // Amounts
+  quantity          Decimal         @db.Decimal(18, 4)
+  unit_price        Decimal         @db.Decimal(18, 2)
+  discount          Decimal         @default(0) @db.Decimal(18, 2)
+  tax_rate          Decimal         @default(0) @db.Decimal(5, 2)
+  sub_total         Decimal         @db.Decimal(18, 2)
+  tax_amount        Decimal         @db.Decimal(18, 2)
+  total_amount      Decimal         @db.Decimal(18, 2)
+  
+  // Relations
+  farm              Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  invoice           ARInvoice       @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  product           Product?        @relation(fields: [product_id], references: [id])
+  
+  @@unique([invoice_id, line_number])
+  @@index([farm_id])
+  @@map("ar_invoice_lines")
+}
+
+/// ARPayment - Phiếu thu tiền khách hàng
+model ARPayment {
+  id                String          @id @default(uuid())
+  farm_id           String
+  payment_number    String                              // PT-2025-00001
+  payment_date      DateTime        @db.Date
+  customer_id       String
+  
+  // Payment
+  payment_method    PaymentMethod   @default(CASH)
+  amount            Decimal         @db.Decimal(18, 2)
+  allocated_amount  Decimal         @default(0) @db.Decimal(18, 2)
+  
+  // Bank info
+  bank_account_id   String?
+  reference         String?
+  
+  // Status
+  status            PaymentStatus   @default(PENDING)
+  posted_at         DateTime?
+  posted_by         String?
+  
+  // Notes
+  notes             String?
+  
+  // Meta
+  created_at        DateTime        @default(now())
+  updated_at        DateTime        @updatedAt
+  created_by        String?
+  
+  // Relations
+  farm              Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  customer          Partner         @relation("ARPaymentCustomer", fields: [customer_id], references: [id])
+  bank_account      BankAccount?    @relation("ARPaymentBankAccount", fields: [bank_account_id], references: [id])
+  allocations       ARInvoicePaymentAllocation[]
+  
+  @@unique([farm_id, payment_number])
+  @@index([farm_id, status])
+  @@index([customer_id])
+  @@map("ar_payments")
+}
+
+/// ARInvoicePaymentAllocation - Phân bổ thanh toán vào hóa đơn AR Invoice
+model ARInvoicePaymentAllocation {
+  id                String          @id @default(uuid())
+  farm_id           String
+  payment_id        String
+  invoice_id        String
+  amount            Decimal         @db.Decimal(18, 2)
+  allocated_at      DateTime        @default(now())
+  
+  // Relations
+  farm              Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  payment           ARPayment       @relation(fields: [payment_id], references: [id], onDelete: Cascade)
+  invoice           ARInvoice       @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  
+  @@unique([payment_id, invoice_id])
+  @@index([farm_id])
+  @@map("ar_invoice_payment_allocations")
+}
+
+/// APInvoice - Hóa đơn mua hàng
+model APInvoice {
+  id                String          @id @default(uuid())
+  farm_id           String
+  invoice_number    String                              // PINV-2025-00001
+  invoice_date      DateTime        @db.Date
+  vendor_id         String
+  
+  // Amounts
+  sub_total         Decimal         @db.Decimal(18, 2)
+  discount_amount   Decimal         @default(0) @db.Decimal(18, 2)
+  tax_amount        Decimal         @db.Decimal(18, 2)
+  total_amount      Decimal         @db.Decimal(18, 2)
+  paid_amount       Decimal         @default(0) @db.Decimal(18, 2)
+  
+  // Terms
+  due_date          DateTime        @db.Date
+  payment_term_days Int             @default(30)
+  
+  // Status
+  status            APInvoiceStatus @default(DRAFT)
+  posted_at         DateTime?
+  posted_by         String?
+  
+  // Description
+  description       String?
+  notes             String?
+  
+  // Journal Entry link
+  journal_entry_id  String?
+  
+  // Meta
+  created_at        DateTime        @default(now())
+  updated_at        DateTime        @updatedAt
+  created_by        String?
+  
+  // Relations
+  farm              Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  vendor            Partner         @relation("APInvoiceVendor", fields: [vendor_id], references: [id])
+  lines             APInvoiceLine[]
+  allocations       APInvoicePaymentAllocation[]
+  
+  @@unique([farm_id, invoice_number])
+  @@index([farm_id, status])
+  @@index([vendor_id])
+  @@index([due_date])
+  @@map("ap_invoices")
+}
+
+/// APInvoiceLine - Chi tiết hóa đơn mua hàng
+model APInvoiceLine {
+  id                String          @id @default(uuid())
+  farm_id           String
+  invoice_id        String
+  line_number       Int
+  
+  // Product
+  product_id        String?
+  product_name      String
+  unit              String?
+  
+  // Amounts
+  quantity          Decimal         @db.Decimal(18, 4)
+  unit_price        Decimal         @db.Decimal(18, 2)
+  discount          Decimal         @default(0) @db.Decimal(18, 2)
+  tax_rate          Decimal         @default(0) @db.Decimal(5, 2)
+  sub_total         Decimal         @db.Decimal(18, 2)
+  tax_amount        Decimal         @db.Decimal(18, 2)
+  total_amount      Decimal         @db.Decimal(18, 2)
+  
+  // Relations
+  farm              Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  invoice           APInvoice       @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  product           Product?        @relation(fields: [product_id], references: [id])
+  
+  @@unique([invoice_id, line_number])
+  @@index([farm_id])
+  @@map("ap_invoice_lines")
+}
+
+/// APPayment - Phiếu chi tiền cho nhà cung cấp
+model APPayment {
+  id                String          @id @default(uuid())
+  farm_id           String
+  payment_number    String                              // PC-2025-00001
+  payment_date      DateTime        @db.Date
+  vendor_id         String
+  
+  // Payment
+  payment_method    PaymentMethod   @default(BANK_TRANSFER)
+  amount            Decimal         @db.Decimal(18, 2)
+  allocated_amount  Decimal         @default(0) @db.Decimal(18, 2)
+  
+  // Bank info
+  bank_account_id   String?
+  reference         String?
+  
+  // Status
+  status            PaymentStatus   @default(PENDING)
+  posted_at         DateTime?
+  posted_by         String?
+  
+  // Notes
+  notes             String?
+  
+  // Meta
+  created_at        DateTime        @default(now())
+  updated_at        DateTime        @updatedAt
+  created_by        String?
+  
+  // Relations
+  farm              Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  vendor            Partner         @relation("APPaymentVendor", fields: [vendor_id], references: [id])
+  bank_account      BankAccount?    @relation("APPaymentBankAccount", fields: [bank_account_id], references: [id])
+  allocations       APInvoicePaymentAllocation[]
+  
+  @@unique([farm_id, payment_number])
+  @@index([farm_id, status])
+  @@index([vendor_id])
+  @@map("ap_payments")
+}
+
+/// APInvoicePaymentAllocation - Phân bổ thanh toán vào hóa đơn AP Invoice
+model APInvoicePaymentAllocation {
+  id                String          @id @default(uuid())
+  farm_id           String
+  payment_id        String
+  invoice_id        String
+  amount            Decimal         @db.Decimal(18, 2)
+  allocated_at      DateTime        @default(now())
+  
+  // Relations
+  farm              Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  payment           APPayment       @relation(fields: [payment_id], references: [id], onDelete: Cascade)
+  invoice           APInvoice       @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+  
+  @@unique([payment_id, invoice_id])
+  @@index([farm_id])
+  @@map("ap_invoice_payment_allocations")
+}
+
+/// BankAccount - Tài khoản ngân hàng
+model BankAccount {
+  id                String          @id @default(uuid())
+  farm_id           String
+  bank_name         String
+  bank_code         String?
+  account_number    String
+  account_name      String
+  branch            String?
+  swift_code        String?
+  is_default        Boolean         @default(false)
+  is_active         Boolean         @default(true)
+  
+  // Balance tracking
+  current_balance   Decimal         @default(0) @db.Decimal(18, 2)
+  
+  // Meta
+  created_at        DateTime        @default(now())
+  updated_at        DateTime        @updatedAt
+  
+  // Relations
+  farm              Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  ar_payments       ARPayment[]     @relation("ARPaymentBankAccount")
+  ap_payments       APPayment[]     @relation("APPaymentBankAccount")
+  
+  @@unique([farm_id, account_number])
+  @@index([farm_id, is_active])
+  @@map("bank_accounts")
+}
+
