@@ -29,23 +29,56 @@ const mainNavItems = [
     { href: '/kho', label: 'Kho', icon: Warehouse },
 ];
 
-const moreNavItems = [
-    { href: '/tai-san', label: '🏭 Tài sản cố định' },
-    { href: '/tai-san/bang-khau-hao', label: '📋 Bảng khấu hao' },
-    { href: '/nhan-vien', label: 'Nhân công' },
-    { href: '/cham-cong', label: 'Chấm công' },
-    { href: '/bang-luong', label: 'Bảng lương' },
-    { href: '/cong-no', label: 'Công nợ' },
-    { href: '/hoa-don', label: 'Hóa đơn' },
-    { href: '/bao-cao', label: 'Báo cáo' },
-    { href: '/bao-cao/tai-chinh', label: '📊 Báo cáo tài chính' },
-    { href: '/thue', label: '📊 Tuân thủ thuế' },
-    { href: '/thue/to-khai', label: 'Tờ khai VAT' },
-    { href: '/thue/tndn', label: 'Thuế TNDN (CIT)' },
-    { href: '/thue/tncn', label: 'Thuế TNCN (PIT)' },
-    { href: '/thue/vat-issues', label: 'Kiểm tra VAT' },
-    { href: '/thue/xuat-ho-so', label: 'Xuất hồ sơ thuế' },
-    { href: '/cai-dat', label: 'Cài đặt' },
+// Grouped navigation items for "More" menu
+const moreNavGroups = [
+    {
+        label: '💰 Bán hàng',
+        items: [
+            { href: '/ar-invoices', label: 'Hóa đơn bán hàng' },
+            { href: '/cong-no/phai-thu', label: 'Công nợ phải thu' },
+        ],
+    },
+    {
+        label: '🛒 Mua hàng',
+        items: [
+            { href: '/hoa-don', label: 'Hóa đơn mua (OCR)' },
+            { href: '/cong-no/phai-tra', label: 'Công nợ phải trả' },
+        ],
+    },
+    {
+        label: '👷 Nhân sự',
+        items: [
+            { href: '/nhan-vien', label: 'Nhân viên' },
+            { href: '/cham-cong', label: 'Chấm công' },
+            { href: '/bang-luong', label: 'Bảng lương' },
+        ],
+    },
+    {
+        label: '📊 Báo cáo',
+        items: [
+            { href: '/bao-cao', label: 'Tổng quan' },
+            { href: '/bao-cao/tai-chinh', label: 'Báo cáo tài chính' },
+            { href: '/cong-no', label: 'Công nợ' },
+        ],
+    },
+    {
+        label: '📋 Thuế',
+        items: [
+            { href: '/thue', label: 'Tuân thủ thuế' },
+            { href: '/thue/to-khai', label: 'Tờ khai VAT' },
+            { href: '/thue/tndn', label: 'Thuế TNDN (CIT)' },
+            { href: '/thue/tncn', label: 'Thuế TNCN (PIT)' },
+            { href: '/thue/xuat-ho-so', label: 'Xuất hồ sơ thuế' },
+        ],
+    },
+    {
+        label: '⚙️ Cài đặt',
+        items: [
+            { href: '/tai-san', label: 'Tài sản cố định' },
+            { href: '/tai-san/bang-khau-hao', label: 'Bảng khấu hao' },
+            { href: '/cai-dat', label: 'Cài đặt hệ thống' },
+        ],
+    },
 ];
 
 export function BottomNav() {
@@ -91,13 +124,21 @@ export function BottomNav() {
                                 <span>Thêm</span>
                             </button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-40">
-                            {moreNavItems.map((item) => (
-                                <DropdownMenuItem key={item.href} asChild>
-                                    <Link href={item.href} className="cursor-pointer">
-                                        {item.label}
-                                    </Link>
-                                </DropdownMenuItem>
+                        <DropdownMenuContent align="end" className="w-48 max-h-80 overflow-y-auto">
+                            {moreNavGroups.map((group, groupIndex) => (
+                                <div key={group.label}>
+                                    {groupIndex > 0 && <div className="h-px bg-border my-1" />}
+                                    <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                                        {group.label}
+                                    </div>
+                                    {group.items.map((item) => (
+                                        <DropdownMenuItem key={item.href} asChild>
+                                            <Link href={item.href} className="cursor-pointer pl-4">
+                                                {item.label}
+                                            </Link>
+                                        </DropdownMenuItem>
+                                    ))}
+                                </div>
                             ))}
                         </DropdownMenuContent>
                     </DropdownMenu>
