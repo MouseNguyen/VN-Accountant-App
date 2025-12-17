@@ -70,7 +70,7 @@ async function getVATSummary(
         prismaBase.transaction.aggregate({
             where: {
                 farm_id: farmId,
-                trans_type: 'INCOME',
+                trans_type: { in: ['SALE', 'INCOME'] },
                 trans_date: { gte: startDate, lte: endDate },
             },
             _sum: { tax_amount: true },
@@ -80,7 +80,7 @@ async function getVATSummary(
         prismaBase.transaction.aggregate({
             where: {
                 farm_id: farmId,
-                trans_type: 'EXPENSE',
+                trans_type: { in: ['PURCHASE', 'EXPENSE'] },
                 trans_date: { gte: startDate, lte: endDate },
             },
             _sum: { tax_amount: true },

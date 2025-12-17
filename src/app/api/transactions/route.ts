@@ -101,9 +101,9 @@ export const GET = withAuth(async (request: NextRequest, _context, user: AuthUse
         const summary = { total_income: 0, total_expense: 0, net: 0 };
         summaryResult.forEach((r) => {
             const amount = Number(r._sum.total_amount || 0);
-            if (r.trans_type === 'INCOME' || r.trans_type === 'CASH_IN') {
+            if (['SALE', 'INCOME', 'CASH_IN'].includes(r.trans_type)) {
                 summary.total_income += amount;
-            } else if (r.trans_type === 'EXPENSE' || r.trans_type === 'CASH_OUT') {
+            } else if (['PURCHASE', 'EXPENSE', 'CASH_OUT'].includes(r.trans_type)) {
                 summary.total_expense += amount;
             }
             // (removed - now handled above)

@@ -13,6 +13,18 @@ import type {
     PayableReport,
 } from '@/types/report';
 
+// Transaction type helpers - must include SALE/PURCHASE for proper reporting
+const INCOME_TYPES = ['INCOME', 'SALE', 'CASH_IN'];
+const EXPENSE_TYPES = ['EXPENSE', 'PURCHASE', 'CASH_OUT'];
+
+function isIncomeType(type: string): boolean {
+    return INCOME_TYPES.includes(type);
+}
+
+function isExpenseType(type: string): boolean {
+    return EXPENSE_TYPES.includes(type);
+}
+
 // ==========================================
 // INCOME/EXPENSE REPORT
 // ==========================================
@@ -61,11 +73,10 @@ export async function getIncomeExpenseReport(params: {
 
     transactions.forEach((t) => {
         const amount = toDecimal(t.total_amount);
-        // INCOME + CASH_IN = Thu (money coming in)
-        // EXPENSE + CASH_OUT = Chi (money going out)
-        if (t.trans_type === 'INCOME' || t.trans_type === 'CASH_IN') {
+        // Use helper functions that include SALE/PURCHASE
+        if (isIncomeType(t.trans_type)) {
             totalIncome = totalIncome.plus(amount);
-        } else if (t.trans_type === 'EXPENSE' || t.trans_type === 'CASH_OUT') {
+        } else if (isExpenseType(t.trans_type)) {
             totalExpense = totalExpense.plus(amount);
         }
     });
@@ -97,9 +108,9 @@ export async function getIncomeExpenseReport(params: {
 
         const entry = dateMap.get(dateKey)!;
         const amount = toDecimal(t.total_amount);
-        if (t.trans_type === 'INCOME' || t.trans_type === 'CASH_IN') {
+        if (isIncomeType(t.trans_type)) {
             entry.income = entry.income.plus(amount);
-        } else if (t.trans_type === 'EXPENSE' || t.trans_type === 'CASH_OUT') {
+        } else if (isExpenseType(t.trans_type)) {
             entry.expense = entry.expense.plus(amount);
         }
         entry.ids.push(t.id);
@@ -126,9 +137,9 @@ export async function getIncomeExpenseReport(params: {
             }
             const entry = categoryMap.get(cat)!;
             const amount = toDecimal(item.line_total);
-            if (t.trans_type === 'INCOME' || t.trans_type === 'CASH_IN') {
+            if (isIncomeType(t.trans_type)) {
                 entry.income = entry.income.plus(amount);
-            } else if (t.trans_type === 'EXPENSE' || t.trans_type === 'CASH_OUT') {
+            } else if (isExpenseType(t.trans_type)) {
                 entry.expense = entry.expense.plus(amount);
             }
             if (!entry.ids.includes(t.id)) entry.ids.push(t.id);
@@ -203,11 +214,11 @@ export async function getProfitLossReport(params: {
     const endDate = new Date(to);
     endDate.setHours(23, 59, 59, 999);
 
-    // Doanh thu bán hàng (INCOME)
+    // Doanh thu bán hàng (INCOME/SALE)
     const salesTransactions = await prisma.transaction.findMany({
         where: {
             farm_id: farmId,
-            trans_type: 'INCOME',
+            trans_type: { in: ['INCOME', 'SALE'] },
             trans_date: { gte: startDate, lte: endDate },
             deleted_at: null,
         },
@@ -225,7 +236,7 @@ export async function getProfitLossReport(params: {
         where: {
             transaction: {
                 farm_id: farmId,
-                trans_type: 'INCOME',
+                trans_type: { in: ['INCOME', 'SALE'] },
                 trans_date: { gte: startDate, lte: endDate },
                 deleted_at: null,
             },
@@ -250,11 +261,11 @@ export async function getProfitLossReport(params: {
 
     const grossProfit = sales.minus(cogs);
 
-    // Chi phí hoạt động (EXPENSE không có product - pure expenses)
+    // Chi phí hoạt động (EXPENSE/PURCHASE không có product - pure expenses)
     const opExpenseTransactions = await prisma.transaction.findMany({
         where: {
             farm_id: farmId,
-            trans_type: 'EXPENSE',
+            trans_type: { in: ['EXPENSE'] }, // Note: PURCHASE has products, so not pure expense
             trans_date: { gte: startDate, lte: endDate },
             deleted_at: null,
             items: { none: { product_id: { not: null } } },
@@ -481,9 +492,9 @@ export async function getPayableReport(): Promise<PayableReport> {
         else range = '>90';
 
         // Determine if this is receivable or payable based on transaction type
-        // (simplified - don't require specific partner_type to avoid data inconsistency issues)
-        const isReceivable = t.trans_type === 'INCOME';
-        const isPayable = t.trans_type === 'EXPENSE';
+        // Use helper functions that include SALE/PURCHASE
+        const isReceivable = isIncomeType(t.trans_type);
+        const isPayable = isExpenseType(t.trans_type);
 
         if (isReceivable) {
             totalReceivable = totalReceivable.plus(remaining);

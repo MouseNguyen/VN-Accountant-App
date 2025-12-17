@@ -38,9 +38,11 @@ import { PaymentDialog } from './payment-dialog';
 
 const TRANS_TYPE_OPTIONS = [
     { value: 'all', label: 'Tất cả loại' },
-    { value: 'INCOME', label: 'Bán hàng (Thu)' },
-    { value: 'EXPENSE', label: 'Mua hàng (Chi)' },
+    { value: 'SALE', label: 'Bán hàng' },
+    { value: 'INCOME', label: 'Thu tiền' },
     { value: 'CASH_IN', label: 'Thu tiền mặt' },
+    { value: 'PURCHASE', label: 'Mua hàng' },
+    { value: 'EXPENSE', label: 'Chi tiêu' },
     { value: 'CASH_OUT', label: 'Chi tiền mặt' },
 ];
 
@@ -51,9 +53,9 @@ const PAYMENT_STATUS_OPTIONS = [
     { value: 'PAID', label: 'Đã thanh toán' },
 ];
 
-// Helper: Check if transaction is income type (includes CASH_IN)
+// Helper: Check if transaction is income type (includes SALE, INCOME, CASH_IN)
 const isIncomeType = (type: string): boolean => {
-    return type === 'INCOME' || type === 'CASH_IN';
+    return ['SALE', 'INCOME', 'CASH_IN'].includes(type);
 };
 
 // ==========================================

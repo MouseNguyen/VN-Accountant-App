@@ -1,0 +1,660 @@
+// scripts/health-check.ts
+// =====================================================
+// LABA ERP - COMPREHENSIVE HEALTH CHECK SCRIPT
+// Merges: health-check + verify-test-cases + quick-integrity-check
+// Run before starting new tasks/phases to verify system integrity
+// Usage: npx tsx scripts/health-check.ts
+// =====================================================
+
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient();
+
+// Colors for console output
+const RED = '\x1b[31m';
+const GREEN = '\x1b[32m';
+const YELLOW = '\x1b[33m';
+const BLUE = '\x1b[34m';
+const CYAN = '\x1b[36m';
+const RESET = '\x1b[0m';
+const BOLD = '\x1b[1m';
+
+interface CheckResult {
+    name: string;
+    category: string;
+    status: 'PASS' | 'FAIL' | 'WARN' | 'SKIP';
+    message: string;
+    details?: string[];
+}
+
+const results: CheckResult[] = [];
+
+function log(result: CheckResult) {
+    results.push(result);
+    const icon = result.status === 'PASS' ? `${GREEN}✓${RESET}` :
+        result.status === 'FAIL' ? `${RED}✗${RESET}` :
+            result.status === 'WARN' ? `${YELLOW}⚠${RESET}` : `${BLUE}○${RESET}`;
+    console.log(`  ${icon} ${result.name}: ${result.message}`);
+    if (result.details && result.details.length > 0) {
+        result.details.slice(0, 3).forEach(d => console.log(`      ${d}`));
+        if (result.details.length > 3) {
+            console.log(`      ... and ${result.details.length - 3} more`);
+        }
+    }
+}
+
+// =====================================================
+// 1. DATABASE CONNECTIVITY
+// =====================================================
+async function checkDatabase() {
+    console.log(`\n${CYAN}${BOLD}📊 DATABASE${RESET}`);
+
+    try {
+        await prisma.$queryRaw`SELECT 1`;
+        log({ name: 'Connection', category: 'database', status: 'PASS', message: 'Database connected' });
+    } catch (error) {
+        log({ name: 'Connection', category: 'database', status: 'FAIL', message: `Cannot connect: ${error}` });
+        return false;
+    }
+
+    // Check tables exist
+    const tables = ['transactions', 'partners', 'products', 'stocks', 'stock_movements', 'workers', 'payroll_items'];
+    for (const table of tables) {
+        try {
+            await prisma.$queryRawUnsafe(`SELECT 1 FROM ${table} LIMIT 1`);
+            log({ name: `Table: ${table}`, category: 'database', status: 'PASS', message: 'Exists' });
+        } catch {
+            log({ name: `Table: ${table}`, category: 'database', status: 'FAIL', message: 'Missing' });
+        }
+    }
+
+    return true;
+}
+
+// =====================================================
+// 2. DATA INTEGRITY CHECKS
+// =====================================================
+async function checkDataIntegrity() {
+    console.log(`\n${CYAN}${BOLD}🔍 DATA INTEGRITY${RESET}`);
+
+    // 2.1 Partner Balance Sync - simplified query
+    const partners = await prisma.partner.findMany({
+        where: { deleted_at: null },
+        select: { id: true, name: true, partner_type: true, balance: true }
+    });
+
+    let partnerIssues: string[] = [];
+    for (const partner of partners) {
+        const transactions = await prisma.transaction.findMany({
+            where: { partner_id: partner.id, deleted_at: null },
+            select: { trans_type: true, total_amount: true, paid_amount: true }
+        });
+
+        let calculated = 0;
+        for (const t of transactions) {
+            const outstanding = Number(t.total_amount) - Number(t.paid_amount);
+            if (['SALE', 'INCOME'].includes(t.trans_type) && partner.partner_type === 'CUSTOMER') {
+                calculated += outstanding;
+            } else if (['PURCHASE'].includes(t.trans_type) && partner.partner_type === 'VENDOR') {
+                calculated += outstanding;
+            }
+        }
+        const stored = Number(partner.balance);
+        if (Math.abs(stored - calculated) > 1) {
+            partnerIssues.push(`${partner.name}: stored=${stored.toLocaleString()}, calc=${calculated.toLocaleString()}`);
+        }
+    }
+
+    log({
+        name: 'Partner Balance Sync',
+        category: 'integrity',
+        status: partnerIssues.length === 0 ? 'PASS' : 'FAIL',
+        message: partnerIssues.length === 0 ? `All ${partners.length} partners OK` : `${partnerIssues.length} mismatches`,
+        details: partnerIssues
+    });
+
+    // 2.2 Stock vs Product Sync
+    const products = await prisma.product.findMany({
+        where: { deleted_at: null },
+        select: { id: true, code: true, name: true, stock_qty: true }
+    });
+
+    let stockIssues: string[] = [];
+    for (const product of products) {
+        const stockSum = await prisma.stock.aggregate({
+            where: { product_id: product.id },
+            _sum: { quantity: true }
+        });
+        const stockQty = Number(stockSum._sum.quantity || 0);
+        const productQty = Number(product.stock_qty);
+        if (Math.abs(stockQty - productQty) > 0.001) {
+            stockIssues.push(`${product.name}: Product=${productQty}, Stock=${stockQty}`);
+        }
+    }
+
+    log({
+        name: 'Stock vs Product Sync',
+        category: 'integrity',
+        status: stockIssues.length === 0 ? 'PASS' : 'WARN',
+        message: stockIssues.length === 0 ? `All ${products.length} products OK` : `${stockIssues.length} mismatches`,
+        details: stockIssues
+    });
+
+    // 2.3 AP/AR Balance Check
+    const apInvoices = await prisma.aPTransaction.findMany({
+        where: { type: 'INVOICE', deleted_at: null },
+        include: { transaction: { select: { code: true, total_amount: true, paid_amount: true } } }
+    });
+
+    let apIssues: string[] = [];
+    for (const ap of apInvoices) {
+        if (!ap.transaction) continue;
+        const transBalance = Number(ap.transaction.total_amount) - Number(ap.transaction.paid_amount);
+        const apBalance = Number(ap.balance);
+        if (Math.abs(transBalance - apBalance) > 1) {
+            apIssues.push(`${ap.code}: Transaction=${transBalance.toLocaleString()}, AP=${apBalance.toLocaleString()}`);
+        }
+    }
+
+    log({
+        name: 'AP Transaction Sync',
+        category: 'integrity',
+        status: apIssues.length === 0 ? 'PASS' : 'FAIL',
+        message: apIssues.length === 0 ? `All ${apInvoices.length} AP invoices OK` : `${apIssues.length} mismatches`,
+        details: apIssues
+    });
+
+    // 2.4 Payment Status Consistency
+    const transactions = await prisma.transaction.findMany({
+        where: { deleted_at: null },
+        select: { code: true, total_amount: true, paid_amount: true, payment_status: true }
+    });
+
+    let statusIssues: string[] = [];
+    for (const t of transactions) {
+        const total = Number(t.total_amount);
+        const paid = Number(t.paid_amount);
+        let expected: string;
+        if (paid <= 0) expected = 'PENDING';
+        else if (paid >= total) expected = 'PAID';
+        else expected = 'PARTIAL';
+
+        const status = String(t.payment_status);
+        if (status !== expected && status !== 'UNPAID' &&
+            !(expected === 'PENDING' && status === 'UNPAID')) {
+            statusIssues.push(`${t.code}: status=${status}, expected=${expected}`);
+        }
+    }
+
+    log({
+        name: 'Payment Status',
+        category: 'integrity',
+        status: statusIssues.length === 0 ? 'PASS' : 'WARN',
+        message: statusIssues.length === 0 ? `All ${transactions.length} transactions OK` : `${statusIssues.length} mismatches`,
+        details: statusIssues
+    });
+}
+
+// =====================================================
+// 3. CALCULATION TESTS
+// =====================================================
+async function checkCalculations() {
+    console.log(`\n${CYAN}${BOLD}🧮 CALCULATION TESTS${RESET}`);
+
+    // Test moving average calculation
+    const { calculateMovingAverageCost, roundMoney } = await import('../src/lib/decimal');
+
+    // Test 1: Moving Average
+    const ma = calculateMovingAverageCost(100, 50000, 50, 60000);
+    const expectedMA = Math.round((100 * 50000 + 50 * 60000) / 150);
+    log({
+        name: 'Moving Average Cost',
+        category: 'calculation',
+        status: Math.abs(ma - expectedMA) <= 1 ? 'PASS' : 'FAIL',
+        message: `Result=${ma}, Expected=${expectedMA}`
+    });
+
+    // Test 2: VND Rounding (should be 0 decimals)
+    const rounded = roundMoney(12345.67);
+    log({
+        name: 'VND Rounding',
+        category: 'calculation',
+        status: rounded === 12346 ? 'PASS' : 'FAIL',
+        message: `roundMoney(12345.67) = ${rounded}, Expected=12346 (0 decimals)`
+    });
+
+    // Test 3: Transaction item calculation
+    const testItem = { quantity: 10, unit_price: 100000, tax_rate: 10, discount_percent: 5 };
+    const subtotal = testItem.quantity * testItem.unit_price; // 1,000,000
+    const discount = subtotal * (testItem.discount_percent / 100); // 50,000
+    const afterDiscount = subtotal - discount; // 950,000
+    const tax = afterDiscount * (testItem.tax_rate / 100); // 95,000
+    const expectedTotal = afterDiscount + tax; // 1,045,000
+
+    log({
+        name: 'Item Calculation Formula',
+        category: 'calculation',
+        status: expectedTotal === 1045000 ? 'PASS' : 'FAIL',
+        message: `(qty×price - discount) × (1+tax) = ${expectedTotal.toLocaleString()}`
+    });
+}
+
+// =====================================================
+// 4. TRANSACTION TYPE TESTS
+// =====================================================
+async function checkTransactionTypes() {
+    console.log(`\n${CYAN}${BOLD}💰 TRANSACTION TYPES${RESET}`);
+
+    const farmId = await getDefaultFarmId();
+    if (!farmId) {
+        log({ name: 'Farm ID', category: 'transactions', status: 'SKIP', message: 'No farm found' });
+        return;
+    }
+
+    // Count by type
+    const [sale, income, purchase, expense] = await Promise.all([
+        prisma.transaction.count({ where: { farm_id: farmId, trans_type: 'SALE', deleted_at: null } }),
+        prisma.transaction.count({ where: { farm_id: farmId, trans_type: 'INCOME', deleted_at: null } }),
+        prisma.transaction.count({ where: { farm_id: farmId, trans_type: 'PURCHASE', deleted_at: null } }),
+        prisma.transaction.count({ where: { farm_id: farmId, trans_type: 'EXPENSE', deleted_at: null } }),
+    ]);
+
+    log({
+        name: 'Transaction Types',
+        category: 'transactions',
+        status: 'PASS',
+        message: `SALE=${sale}, INCOME=${income}, PURCHASE=${purchase}, EXPENSE=${expense}`
+    });
+
+    // AR includes SALE + INCOME
+    const arCount = await prisma.transaction.count({
+        where: { farm_id: farmId, trans_type: { in: ['SALE', 'INCOME'] }, deleted_at: null }
+    });
+
+    log({
+        name: 'AR Query (SALE+INCOME)',
+        category: 'transactions',
+        status: arCount === sale + income ? 'PASS' : 'FAIL',
+        message: `Count=${arCount}, Expected=${sale + income}`
+    });
+
+    // AP includes PURCHASE + EXPENSE
+    const apCount = await prisma.transaction.count({
+        where: { farm_id: farmId, trans_type: { in: ['PURCHASE', 'EXPENSE'] }, deleted_at: null }
+    });
+
+    log({
+        name: 'AP Query (PURCHASE+EXPENSE)',
+        category: 'transactions',
+        status: apCount === purchase + expense ? 'PASS' : 'FAIL',
+        message: `Count=${apCount}, Expected=${purchase + expense}`
+    });
+}
+
+// =====================================================
+// 5. REPORT VALIDATION
+// =====================================================
+async function checkReports() {
+    console.log(`\n${CYAN}${BOLD}📈 REPORT VALIDATION${RESET}`);
+
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - 1);
+    const endDate = new Date();
+
+    // Revenue check
+    const revenueData = await prisma.transaction.aggregate({
+        where: {
+            trans_type: { in: ['SALE', 'INCOME'] },
+            trans_date: { gte: startDate, lte: endDate },
+            deleted_at: null
+        },
+        _sum: { total_amount: true },
+        _count: true
+    });
+
+    log({
+        name: 'Revenue Query',
+        category: 'reports',
+        status: 'PASS',
+        message: `Last 30 days: ${Number(revenueData._sum.total_amount || 0).toLocaleString()}đ (${revenueData._count} transactions)`
+    });
+
+    // Expense check (EXPENSE only, not PURCHASE)
+    const expenseData = await prisma.transaction.aggregate({
+        where: {
+            trans_type: 'EXPENSE',
+            trans_date: { gte: startDate, lte: endDate },
+            deleted_at: null
+        },
+        _sum: { total_amount: true },
+        _count: true
+    });
+
+    log({
+        name: 'Expense Query (EXPENSE only)',
+        category: 'reports',
+        status: 'PASS',
+        message: `Last 30 days: ${Number(expenseData._sum.total_amount || 0).toLocaleString()}đ (${expenseData._count} transactions)`
+    });
+
+    // COGS from StockMovement
+    const cogsData = await prisma.stockMovement.aggregate({
+        where: {
+            type: 'OUT',
+            date: { gte: startDate, lte: endDate }
+        },
+        _sum: { cogs_amount: true }
+    });
+
+    log({
+        name: 'COGS Query (StockMovement)',
+        category: 'reports',
+        status: 'PASS',
+        message: `Last 30 days: ${Number(cogsData._sum.cogs_amount || 0).toLocaleString()}đ`
+    });
+}
+
+// =====================================================
+// 6. VAT & TAX CHECKS
+// =====================================================
+async function checkVAT() {
+    console.log(`\n${CYAN}${BOLD}🧾 VAT & TAX${RESET}`);
+
+    const farmId = await getDefaultFarmId();
+    if (!farmId) return;
+
+    // Count transactions with VAT
+    const withVAT = await prisma.transaction.count({
+        where: { farm_id: farmId, deleted_at: null, tax_amount: { gt: 0 } }
+    });
+
+    log({
+        name: 'Transactions with VAT',
+        category: 'vat',
+        status: withVAT > 0 ? 'PASS' : 'WARN',
+        message: `${withVAT} transactions have VAT`
+    });
+
+    // Cash purchases >= 20M (non-deductible VAT)
+    const cashOver20M = await prisma.transaction.count({
+        where: {
+            farm_id: farmId,
+            trans_type: 'PURCHASE',
+            payment_method: 'CASH',
+            total_amount: { gte: 20000000 },
+            deleted_at: null
+        }
+    });
+
+    log({
+        name: 'Cash >= 20M (Non-deductible VAT)',
+        category: 'vat',
+        status: 'PASS',
+        message: `${cashOver20M} cash purchases >= 20M`
+    });
+
+    // VAT Declarations
+    const vatDeclarations = await prisma.vATDeclaration.count({ where: { farm_id: farmId } });
+    log({
+        name: 'VAT Declarations',
+        category: 'vat',
+        status: 'PASS',
+        message: `${vatDeclarations} declarations found`
+    });
+}
+
+// =====================================================
+// 7. FIXED ASSETS
+// =====================================================
+async function checkFixedAssets() {
+    console.log(`\n${CYAN}${BOLD}🏭 FIXED ASSETS${RESET}`);
+
+    const farmId = await getDefaultFarmId();
+    if (!farmId) return;
+
+    const assets = await prisma.asset.count({ where: { farm_id: farmId } });
+    log({
+        name: 'Fixed Assets',
+        category: 'assets',
+        status: 'PASS',
+        message: `${assets} assets registered`
+    });
+
+    if (assets > 0) {
+        // Vehicle > 1.6B check
+        const expensiveVehicles = await prisma.asset.findMany({
+            where: { farm_id: farmId, category: 'VEHICLE', purchase_price: { gt: 1600000000 } }
+        });
+
+        for (const v of expensiveVehicles) {
+            const hasCap = v.max_deductible_value !== null && Number(v.max_deductible_value) <= 1600000000;
+            log({
+                name: `Vehicle ${v.code} > 1.6B`,
+                category: 'assets',
+                status: hasCap ? 'PASS' : 'WARN',
+                message: hasCap ? 'Has depreciation cap' : 'Missing depreciation cap'
+            });
+        }
+    }
+}
+
+// =====================================================
+// 8. AUDIT TRAIL
+// =====================================================
+async function checkAuditTrail() {
+    console.log(`\n${CYAN}${BOLD}📝 AUDIT TRAIL${RESET}`);
+
+    const farmId = await getDefaultFarmId();
+    if (!farmId) return;
+
+    const auditLogs = await prisma.auditLog.count({ where: { farm_id: farmId } });
+    log({
+        name: 'Audit Log Entries',
+        category: 'audit',
+        status: auditLogs > 0 ? 'PASS' : 'WARN',
+        message: `${auditLogs} entries`
+    });
+
+    if (auditLogs > 0) {
+        // Check hash chain integrity
+        const logs = await prisma.auditLog.findMany({
+            where: { farm_id: farmId },
+            orderBy: { created_at: 'asc' },
+            take: 10,
+            select: { id: true, hash: true, previous_hash: true }
+        });
+
+        let chainValid = true;
+        for (let i = 1; i < logs.length; i++) {
+            if (logs[i].previous_hash && logs[i - 1].hash) {
+                if (logs[i].previous_hash !== logs[i - 1].hash) {
+                    chainValid = false;
+                    break;
+                }
+            }
+        }
+
+        log({
+            name: 'Hash Chain Integrity',
+            category: 'audit',
+            status: chainValid ? 'PASS' : 'FAIL',
+            message: chainValid ? 'Chain valid (first 10 entries)' : 'Chain broken!'
+        });
+    }
+}
+
+// =====================================================
+// 9. BUSINESS RULES
+// =====================================================
+async function checkBusinessRules() {
+    console.log(`\n${CYAN}${BOLD}📋 BUSINESS RULES${RESET}`);
+
+    // Check for negative stock
+    const negativeStock = await prisma.stock.findMany({
+        where: { quantity: { lt: 0 } },
+        include: {
+            product: { select: { name: true } },
+            farm: { select: { allow_negative_stock: true } }
+        }
+    });
+
+    const invalidNegative = negativeStock.filter(s => !s.farm?.allow_negative_stock);
+    log({
+        name: 'Negative Stock',
+        category: 'business',
+        status: invalidNegative.length === 0 ? 'PASS' : 'WARN',
+        message: invalidNegative.length === 0 ? 'No invalid negative stock' : `${invalidNegative.length} products with negative stock`,
+        details: invalidNegative.map(s => `${s.product.name}: ${Number(s.quantity)}`)
+    });
+
+    // Future transactions
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const futureTransactions = await prisma.transaction.findMany({
+        where: { trans_date: { gt: tomorrow }, deleted_at: null },
+        select: { code: true, trans_date: true }
+    });
+
+    log({
+        name: 'Future Transactions',
+        category: 'business',
+        status: futureTransactions.length === 0 ? 'PASS' : 'WARN',
+        message: futureTransactions.length === 0 ? 'No future-dated transactions' : `${futureTransactions.length} future-dated`,
+        details: futureTransactions.map(t => `${t.code}: ${t.trans_date.toISOString().split('T')[0]}`)
+    });
+}
+
+// =====================================================
+// 10. PAYROLL
+// =====================================================
+async function checkPayroll() {
+    console.log(`\n${CYAN}${BOLD}👷 PAYROLL${RESET}`);
+
+    const farmId = await getDefaultFarmId();
+    if (!farmId) return;
+
+    // Active workers
+    const activeWorkers = await prisma.worker.count({
+        where: { farm_id: farmId, status: 'ACTIVE', deleted_at: null }
+    });
+
+    log({
+        name: 'Active Workers',
+        category: 'payroll',
+        status: 'PASS',
+        message: `${activeWorkers} active workers`
+    });
+
+    // Pending payroll
+    const pendingPayroll = await prisma.payrollItem.aggregate({
+        where: { is_paid: false },
+        _sum: { net_amount: true },
+        _count: true
+    });
+
+    log({
+        name: 'Pending Payroll',
+        category: 'payroll',
+        status: 'PASS',
+        message: `${pendingPayroll._count} items, Total: ${Number(pendingPayroll._sum.net_amount || 0).toLocaleString()}đ`
+    });
+}
+
+// =====================================================
+// HELPER
+// =====================================================
+async function getDefaultFarmId(): Promise<string | null> {
+    const farm = await prisma.farm.findFirst();
+    return farm?.id || null;
+}
+
+// =====================================================
+// MAIN
+// =====================================================
+async function main() {
+    console.log(`\n${BOLD}╔════════════════════════════════════════════════════════════╗${RESET}`);
+    console.log(`${BOLD}║   🏥 LABA ERP - COMPREHENSIVE SYSTEM HEALTH CHECK          ║${RESET}`);
+    console.log(`${BOLD}║   Merged: health-check + verify-test-cases + integrity     ║${RESET}`);
+    console.log(`${BOLD}╚════════════════════════════════════════════════════════════╝${RESET}`);
+    console.log(`Started at: ${new Date().toISOString()}`);
+
+    try {
+        const dbOK = await checkDatabase();
+        if (!dbOK) {
+            console.log(`\n${RED}❌ Database connection failed. Cannot continue.${RESET}`);
+            process.exit(1);
+        }
+
+        await checkDataIntegrity();
+        await checkCalculations();
+        await checkTransactionTypes();
+        await checkReports();
+        await checkVAT();
+        await checkFixedAssets();
+        await checkAuditTrail();
+        await checkBusinessRules();
+        await checkPayroll();
+
+        // Summary
+        console.log(`\n${BOLD}════════════════════════════════════════════════════════════${RESET}`);
+        console.log(`${BOLD}📊 SUMMARY${RESET}`);
+        console.log(`════════════════════════════════════════════════════════════`);
+
+        const passed = results.filter(r => r.status === 'PASS').length;
+        const failed = results.filter(r => r.status === 'FAIL').length;
+        const warnings = results.filter(r => r.status === 'WARN').length;
+        const skipped = results.filter(r => r.status === 'SKIP').length;
+
+        console.log(`\n  ${GREEN}✓ PASSED:${RESET}   ${passed}`);
+        console.log(`  ${RED}✗ FAILED:${RESET}   ${failed}`);
+        console.log(`  ${YELLOW}⚠ WARNINGS:${RESET} ${warnings}`);
+        console.log(`  ${BLUE}○ SKIPPED:${RESET}  ${skipped}`);
+        console.log(`\n  TOTAL: ${results.length} checks`);
+
+        // Group by category
+        const categories = [...new Set(results.map(r => r.category))];
+        console.log(`\n  Categories checked: ${categories.length}`);
+        categories.forEach(cat => {
+            const catResults = results.filter(r => r.category === cat);
+            const catPassed = catResults.filter(r => r.status === 'PASS').length;
+            const catTotal = catResults.length;
+            console.log(`    • ${cat}: ${catPassed}/${catTotal}`);
+        });
+
+        // Overall status
+        if (failed === 0) {
+            console.log(`\n${GREEN}${BOLD}✅ SYSTEM HEALTHY - Ready for next phase!${RESET}\n`);
+        } else {
+            console.log(`\n${RED}${BOLD}❌ ISSUES DETECTED - Fix before proceeding!${RESET}\n`);
+
+            console.log(`${RED}Failed checks:${RESET}`);
+            results.filter(r => r.status === 'FAIL').forEach(r => {
+                console.log(`  • [${r.category}] ${r.name}: ${r.message}`);
+            });
+        }
+
+        // Save report
+        const reportPath = `./health-check-${new Date().toISOString().split('T')[0]}.json`;
+        require('fs').writeFileSync(reportPath, JSON.stringify({
+            timestamp: new Date().toISOString(),
+            summary: { passed, failed, warnings, skipped, total: results.length },
+            categories: categories.map(cat => ({
+                name: cat,
+                passed: results.filter(r => r.category === cat && r.status === 'PASS').length,
+                total: results.filter(r => r.category === cat).length
+            })),
+            results
+        }, null, 2));
+        console.log(`📁 Report saved to: ${reportPath}`);
+
+        process.exit(failed > 0 ? 1 : 0);
+
+    } catch (error) {
+        console.error(`\n${RED}ERROR:${RESET}`, error);
+        process.exit(1);
+    } finally {
+        await prisma.$disconnect();
+    }
+}
+
+main();

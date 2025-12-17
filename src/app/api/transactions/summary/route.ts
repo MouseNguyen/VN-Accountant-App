@@ -4,34 +4,37 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, type AuthUser } from '@/lib/auth';
 import { prismaBase } from '@/lib/prisma';
-import { TransactionType } from '@prisma/client';
+import { transactionSummaryQuerySchema } from '@/lib/validations/transaction';
 
 import { serializeDecimals } from '@/lib/api-utils';
 export const GET = withAuth(async (request: NextRequest, _context, user: AuthUser) => {
     try {
-        const farmId = user.farm_id;
-
-        // Parse query params
         const { searchParams } = new URL(request.url);
-        const startDateStr = searchParams.get('start_date');
-        const endDateStr = searchParams.get('end_date');
+        const query = transactionSummaryQuerySchema.parse(Object.fromEntries(searchParams));
+
+        const farmId = user.farm_id;
+        const { start_date, end_date } = query;
 
         // Default: current month
         const now = new Date();
-        const startDate = startDateStr
-            ? new Date(startDateStr)
+        const startDate = start_date
+            ? new Date(start_date)
             : new Date(now.getFullYear(), now.getMonth(), 1);
-        const endDate = endDateStr
-            ? new Date(endDateStr)
+        const endDate = end_date
+            ? new Date(end_date + 'T23:59:59.999Z')
             : new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
 
-        // Get summary data
+        // Transaction type groups - use mutable arrays for Prisma
+        const INCOME_TYPES: ('SALE' | 'INCOME' | 'CASH_IN')[] = ['SALE', 'INCOME', 'CASH_IN'];
+        const EXPENSE_TYPES: ('PURCHASE' | 'EXPENSE' | 'CASH_OUT')[] = ['PURCHASE', 'EXPENSE', 'CASH_OUT'];
+
+        // Get summary data - include SALE/PURCHASE in totals
         const [incomeData, expenseData, paymentStats] = await Promise.all([
-            // Total INCOME (sales)
+            // Total INCOME (includes SALE, INCOME, CASH_IN)
             prismaBase.transaction.aggregate({
                 where: {
                     farm_id: farmId,
-                    trans_type: TransactionType.INCOME,
+                    trans_type: { in: INCOME_TYPES },
                     trans_date: { gte: startDate, lte: endDate },
                     deleted_at: null,
                 },
@@ -43,11 +46,11 @@ export const GET = withAuth(async (request: NextRequest, _context, user: AuthUse
                 _count: true,
             }),
 
-            // Total EXPENSE (purchases)
+            // Total EXPENSE (includes PURCHASE, EXPENSE, CASH_OUT)
             prismaBase.transaction.aggregate({
                 where: {
                     farm_id: farmId,
-                    trans_type: TransactionType.EXPENSE,
+                    trans_type: { in: EXPENSE_TYPES },
                     trans_date: { gte: startDate, lte: endDate },
                     deleted_at: null,
                 },

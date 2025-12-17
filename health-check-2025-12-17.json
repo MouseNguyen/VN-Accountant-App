@@ -1,0 +1,265 @@
+{
+  "timestamp": "2025-12-17T04:16:19.398Z",
+  "summary": {
+    "passed": 31,
+    "failed": 0,
+    "warnings": 1,
+    "skipped": 0,
+    "total": 32
+  },
+  "categories": [
+    {
+      "name": "database",
+      "passed": 8,
+      "total": 8
+    },
+    {
+      "name": "integrity",
+      "passed": 4,
+      "total": 4
+    },
+    {
+      "name": "calculation",
+      "passed": 3,
+      "total": 3
+    },
+    {
+      "name": "transactions",
+      "passed": 3,
+      "total": 3
+    },
+    {
+      "name": "reports",
+      "passed": 3,
+      "total": 3
+    },
+    {
+      "name": "vat",
+      "passed": 3,
+      "total": 3
+    },
+    {
+      "name": "assets",
+      "passed": 2,
+      "total": 2
+    },
+    {
+      "name": "audit",
+      "passed": 2,
+      "total": 2
+    },
+    {
+      "name": "business",
+      "passed": 1,
+      "total": 2
+    },
+    {
+      "name": "payroll",
+      "passed": 2,
+      "total": 2
+    }
+  ],
+  "results": [
+    {
+      "name": "Connection",
+      "category": "database",
+      "status": "PASS",
+      "message": "Database connected"
+    },
+    {
+      "name": "Table: transactions",
+      "category": "database",
+      "status": "PASS",
+      "message": "Exists"
+    },
+    {
+      "name": "Table: partners",
+      "category": "database",
+      "status": "PASS",
+      "message": "Exists"
+    },
+    {
+      "name": "Table: products",
+      "category": "database",
+      "status": "PASS",
+      "message": "Exists"
+    },
+    {
+      "name": "Table: stocks",
+      "category": "database",
+      "status": "PASS",
+      "message": "Exists"
+    },
+    {
+      "name": "Table: stock_movements",
+      "category": "database",
+      "status": "PASS",
+      "message": "Exists"
+    },
+    {
+      "name": "Table: workers",
+      "category": "database",
+      "status": "PASS",
+      "message": "Exists"
+    },
+    {
+      "name": "Table: payroll_items",
+      "category": "database",
+      "status": "PASS",
+      "message": "Exists"
+    },
+    {
+      "name": "Partner Balance Sync",
+      "category": "integrity",
+      "status": "PASS",
+      "message": "All 6 partners OK",
+      "details": []
+    },
+    {
+      "name": "Stock vs Product Sync",
+      "category": "integrity",
+      "status": "PASS",
+      "message": "All 6 products OK",
+      "details": []
+    },
+    {
+      "name": "AP Transaction Sync",
+      "category": "integrity",
+      "status": "PASS",
+      "message": "All 2 AP invoices OK",
+      "details": []
+    },
+    {
+      "name": "Payment Status",
+      "category": "integrity",
+      "status": "PASS",
+      "message": "All 26 transactions OK",
+      "details": []
+    },
+    {
+      "name": "Moving Average Cost",
+      "category": "calculation",
+      "status": "PASS",
+      "message": "Result=53333, Expected=53333"
+    },
+    {
+      "name": "VND Rounding",
+      "category": "calculation",
+      "status": "PASS",
+      "message": "roundMoney(12345.67) = 12346, Expected=12346 (0 decimals)"
+    },
+    {
+      "name": "Item Calculation Formula",
+      "category": "calculation",
+      "status": "PASS",
+      "message": "(qty×price - discount) × (1+tax) = 1,045,000"
+    },
+    {
+      "name": "Transaction Types",
+      "category": "transactions",
+      "status": "PASS",
+      "message": "SALE=5, INCOME=0, PURCHASE=5, EXPENSE=16"
+    },
+    {
+      "name": "AR Query (SALE+INCOME)",
+      "category": "transactions",
+      "status": "PASS",
+      "message": "Count=5, Expected=5"
+    },
+    {
+      "name": "AP Query (PURCHASE+EXPENSE)",
+      "category": "transactions",
+      "status": "PASS",
+      "message": "Count=21, Expected=21"
+    },
+    {
+      "name": "Revenue Query",
+      "category": "reports",
+      "status": "PASS",
+      "message": "Last 30 days: 80,300,000đ (3 transactions)"
+    },
+    {
+      "name": "Expense Query (EXPENSE only)",
+      "category": "reports",
+      "status": "PASS",
+      "message": "Last 30 days: 11,420,000đ (13 transactions)"
+    },
+    {
+      "name": "COGS Query (StockMovement)",
+      "category": "reports",
+      "status": "PASS",
+      "message": "Last 30 days: 0đ"
+    },
+    {
+      "name": "Transactions with VAT",
+      "category": "vat",
+      "status": "PASS",
+      "message": "13 transactions have VAT"
+    },
+    {
+      "name": "Cash >= 20M (Non-deductible VAT)",
+      "category": "vat",
+      "status": "PASS",
+      "message": "1 cash purchases >= 20M"
+    },
+    {
+      "name": "VAT Declarations",
+      "category": "vat",
+      "status": "PASS",
+      "message": "2 declarations found"
+    },
+    {
+      "name": "Fixed Assets",
+      "category": "assets",
+      "status": "PASS",
+      "message": "3 assets registered"
+    },
+    {
+      "name": "Vehicle TS-003 > 1.6B",
+      "category": "assets",
+      "status": "PASS",
+      "message": "Has depreciation cap"
+    },
+    {
+      "name": "Audit Log Entries",
+      "category": "audit",
+      "status": "PASS",
+      "message": "8 entries"
+    },
+    {
+      "name": "Hash Chain Integrity",
+      "category": "audit",
+      "status": "PASS",
+      "message": "Chain valid (first 10 entries)"
+    },
+    {
+      "name": "Negative Stock",
+      "category": "business",
+      "status": "PASS",
+      "message": "No invalid negative stock",
+      "details": []
+    },
+    {
+      "name": "Future Transactions",
+      "category": "business",
+      "status": "WARN",
+      "message": "2 future-dated",
+      "details": [
+        "CP-2412-002: 2025-12-19",
+        "CP-2412-003: 2025-12-24"
+      ]
+    },
+    {
+      "name": "Active Workers",
+      "category": "payroll",
+      "status": "PASS",
+      "message": "5 active workers"
+    },
+    {
+      "name": "Pending Payroll",
+      "category": "payroll",
+      "status": "PASS",
+      "message": "5 items, Total: 38,950,000đ"
+    }
+  ]
+}

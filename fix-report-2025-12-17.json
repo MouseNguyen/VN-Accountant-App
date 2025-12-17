@@ -1,0 +1,34 @@
+{
+  "generated_at": "2025-12-17T03:23:29.808Z",
+  "summary": {
+    "fixed": 3,
+    "errors": 0,
+    "total": 3
+  },
+  "fixes": [
+    {
+      "category": "Partner Balance",
+      "record": "Chợ Long Biên",
+      "field": "balance",
+      "old_value": 0,
+      "new_value": 7200000,
+      "status": "FIXED"
+    },
+    {
+      "category": "Partner Balance",
+      "record": "Cửa hàng Rau Xanh",
+      "field": "balance",
+      "old_value": 9000000,
+      "new_value": 36500000,
+      "status": "FIXED"
+    },
+    {
+      "category": "Partner Balance",
+      "record": "Đại lý Thuốc BVTV",
+      "field": "balance",
+      "old_value": 11400000,
+      "new_value": 0,
+      "status": "FIXED"
+    }
+  ]
+}

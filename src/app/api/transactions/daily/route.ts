@@ -4,22 +4,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, type AuthUser } from '@/lib/auth';
 import { prismaBase } from '@/lib/prisma';
+import { transactionSummaryQuerySchema } from '@/lib/validations/transaction';
 
 import { serializeDecimals } from '@/lib/api-utils';
 export const GET = withAuth(async (request: NextRequest, _context, user: AuthUser) => {
     try {
-        const farmId = user.farm_id;
-
-        // Parse query params
         const { searchParams } = new URL(request.url);
-        const startDateStr = searchParams.get('start_date');
-        const endDateStr = searchParams.get('end_date');
+        const query = transactionSummaryQuerySchema.parse(Object.fromEntries(searchParams));
+
+        const farmId = user.farm_id;
+        const { start_date, end_date } = query;
 
         // Default: last 30 days
         const now = new Date();
-        const endDate = endDateStr ? new Date(endDateStr) : now;
-        const startDate = startDateStr
-            ? new Date(startDateStr)
+        const endDate = end_date ? new Date(end_date + 'T23:59:59.999Z') : now;
+        const startDate = start_date
+            ? new Date(start_date)
             : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
         // Get daily aggregates using raw SQL for better performance
@@ -70,18 +70,21 @@ export const GET = withAuth(async (request: NextRequest, _context, user: AuthUse
             currentDate.setDate(currentDate.getDate() + 1);
         }
 
-        // Fill in actual data
+        // Fill in actual data - include SALE/PURCHASE in income/expense
+        const incomeTypes = ['SALE', 'INCOME', 'CASH_IN'];
+        const expenseTypes = ['PURCHASE', 'EXPENSE', 'CASH_OUT'];
+
         for (const row of dailyData) {
             const dateStr = new Date(row.date).toISOString().split('T')[0];
             const existing = dailyMap.get(dateStr);
 
             if (existing) {
-                if (row.trans_type === 'INCOME') {
-                    existing.income = row.total || 0;
-                    existing.incomeCount = Number(row.count) || 0;
-                } else {
-                    existing.expense = row.total || 0;
-                    existing.expenseCount = Number(row.count) || 0;
+                if (incomeTypes.includes(row.trans_type)) {
+                    existing.income += row.total || 0;
+                    existing.incomeCount += Number(row.count) || 0;
+                } else if (expenseTypes.includes(row.trans_type)) {
+                    existing.expense += row.total || 0;
+                    existing.expenseCount += Number(row.count) || 0;
                 }
                 existing.net = existing.income - existing.expense;
             }

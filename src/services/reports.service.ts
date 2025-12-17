@@ -43,10 +43,27 @@ async function buildReportMeta(
     };
 }
 
+// Transaction types that count as INCOME (thu tiền)
+const INCOME_TYPES = ['INCOME', 'SALE', 'CASH_IN'];
+// Transaction types that count as EXPENSE (chi tiền)
+const EXPENSE_TYPES = ['EXPENSE', 'PURCHASE', 'CASH_OUT'];
+
+function isIncomeType(type: string): boolean {
+    return INCOME_TYPES.includes(type);
+}
+
+function isExpenseType(type: string): boolean {
+    return EXPENSE_TYPES.includes(type);
+}
+
 function getTransTypeLabel(type: string): string {
     const labels: Record<string, string> = {
         INCOME: 'Thu tiền',
+        SALE: 'Bán hàng',
+        CASH_IN: 'Thu tiền mặt',
         EXPENSE: 'Chi tiền',
+        PURCHASE: 'Mua hàng',
+        CASH_OUT: 'Chi tiền mặt',
     };
     return labels[type] || type;
 }
@@ -76,9 +93,9 @@ export async function getCashBookReport(
 
     let openingBalance = 0;
     for (const t of openingTransactions) {
-        if (t.trans_type === 'INCOME') {
+        if (isIncomeType(t.trans_type)) {
             openingBalance += Number(t.total_amount);
-        } else if (t.trans_type === 'EXPENSE') {
+        } else if (isExpenseType(t.trans_type)) {
             openingBalance -= Number(t.total_amount);
         }
     }
@@ -103,7 +120,7 @@ export async function getCashBookReport(
     let totalCredit = 0;
 
     const entries = transactions.map((t) => {
-        const isDebit = t.trans_type === 'INCOME';
+        const isDebit = isIncomeType(t.trans_type);
         const amount = Number(t.total_amount);
 
         const debit = isDebit ? amount : 0;
@@ -166,9 +183,9 @@ export async function getBankBookReport(
 
     let openingBalance = 0;
     for (const t of openingTransactions) {
-        if (t.trans_type === 'INCOME') {
+        if (isIncomeType(t.trans_type)) {
             openingBalance += Number(t.total_amount);
-        } else if (t.trans_type === 'EXPENSE') {
+        } else if (isExpenseType(t.trans_type)) {
             openingBalance -= Number(t.total_amount);
         }
     }
@@ -189,7 +206,7 @@ export async function getBankBookReport(
     let totalCredit = 0;
 
     const entries = transactions.map((t) => {
-        const isDebit = t.trans_type === 'INCOME';
+        const isDebit = isIncomeType(t.trans_type);
         const amount = Number(t.total_amount);
         const debit = isDebit ? amount : 0;
         const credit = !isDebit ? amount : 0;
@@ -236,11 +253,11 @@ export async function getPurchaseInvoiceReport(
     const toDate = new Date(params.to);
     toDate.setHours(23, 59, 59, 999);
 
-    // Query EXPENSE transactions (purchases)
+    // Query EXPENSE/PURCHASE transactions (purchases)
     const transactions = await prisma.transaction.findMany({
         where: {
             farm_id: farmId,
-            trans_type: 'EXPENSE',
+            trans_type: { in: ['EXPENSE', 'PURCHASE'] },
             trans_date: { gte: fromDate, lte: toDate },
             deleted_at: null,
         },
@@ -317,11 +334,11 @@ export async function getSalesInvoiceReport(
     const toDate = new Date(params.to);
     toDate.setHours(23, 59, 59, 999);
 
-    // Query INCOME transactions (sales)
+    // Query INCOME/SALE transactions (sales)
     const transactions = await prisma.transaction.findMany({
         where: {
             farm_id: farmId,
-            trans_type: 'INCOME',
+            trans_type: { in: ['INCOME', 'SALE'] },
             trans_date: { gte: fromDate, lte: toDate },
             deleted_at: null,
         },
@@ -421,12 +438,12 @@ export async function getAR131Report(
     let summaryClosing = 0;
 
     for (const customer of customers) {
-        // Tính số dư đầu kỳ từ Transaction (INCOME với payment pending)
+        // Tính số dư đầu kỳ từ Transaction (INCOME/SALE với payment pending)
         const openingTrans = await prisma.transaction.findMany({
             where: {
                 farm_id: farmId,
                 partner_id: customer.id,
-                trans_type: 'INCOME',
+                trans_type: { in: ['INCOME', 'SALE'] },
                 trans_date: { lt: fromDate },
                 deleted_at: null,
             },
@@ -442,7 +459,7 @@ export async function getAR131Report(
             where: {
                 farm_id: farmId,
                 partner_id: customer.id,
-                trans_type: 'INCOME',
+                trans_type: { in: ['INCOME', 'SALE'] },
                 trans_date: { gte: fromDate, lte: toDate },
                 deleted_at: null,
             },
@@ -528,12 +545,12 @@ export async function getAP331Report(
     let summaryClosing = 0;
 
     for (const vendor of vendors) {
-        // Số dư đầu kỳ từ EXPENSE transactions
+        // Số dư đầu kỳ từ EXPENSE/PURCHASE transactions
         const openingTrans = await prisma.transaction.findMany({
             where: {
                 farm_id: farmId,
                 partner_id: vendor.id,
-                trans_type: 'EXPENSE',
+                trans_type: { in: ['EXPENSE', 'PURCHASE'] },
                 trans_date: { lt: fromDate },
                 deleted_at: null,
             },
@@ -548,7 +565,7 @@ export async function getAP331Report(
             where: {
                 farm_id: farmId,
                 partner_id: vendor.id,
-                trans_type: 'EXPENSE',
+                trans_type: { in: ['EXPENSE', 'PURCHASE'] },
                 trans_date: { gte: fromDate, lte: toDate },
                 deleted_at: null,
             },
@@ -810,22 +827,22 @@ export async function getProfitLossReport(
     const toDate = new Date(params.to);
     toDate.setHours(23, 59, 59, 999);
 
-    // Doanh thu (INCOME)
+    // Doanh thu (INCOME/SALE)
     const incomeData = await prisma.transaction.aggregate({
         where: {
             farm_id: farmId,
-            trans_type: 'INCOME',
+            trans_type: { in: ['INCOME', 'SALE'] },
             trans_date: { gte: fromDate, lte: toDate },
             deleted_at: null,
         },
         _sum: { total_amount: true },
     });
 
-    // Chi phí (EXPENSE)
+    // Chi phí hoạt động (EXPENSE only, not PURCHASE - PURCHASE becomes COGS when sold)
     const expenseData = await prisma.transaction.aggregate({
         where: {
             farm_id: farmId,
-            trans_type: 'EXPENSE',
+            trans_type: 'EXPENSE', // Removed PURCHASE - it's inventory, not operating expense
             trans_date: { gte: fromDate, lte: toDate },
             deleted_at: null,
         },

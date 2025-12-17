@@ -26,65 +26,16 @@ import type { ARTransaction, ARListResponse } from '@/types/ar';
 
 async function fetchARTransactions(params: Record<string, string>): Promise<ARListResponse> {
     const searchParams = new URLSearchParams();
-    // Filter for INCOME transactions (AR) - don't filter by payment_status in API (invalid format)
-    searchParams.set('trans_type', 'INCOME');
+    // Use the proper AR transactions API
     if (params.search) searchParams.set('search', params.search);
+    if (params.status) searchParams.set('status', params.status);
+    if (params.overdue_only) searchParams.set('overdue_only', params.overdue_only);
 
-    const res = await fetch(`/api/transactions?${searchParams.toString()}`);
+    const res = await fetch(`/api/ar-transactions?${searchParams.toString()}`);
     const json = await res.json();
     if (!json.success) throw new Error(json.error?.message || 'Lỗi tải danh sách');
 
-    const data = json.data;
-
-    // Map Transaction to ARTransaction format
-    const allItems = (data?.items || data || []).map((t: any) => ({
-        id: t.id,
-        customer_id: t.partner_id,
-        customer: t.partner ? {
-            id: t.partner.id,
-            code: t.partner.code,
-            name: t.partner.name,
-            phone: t.partner.phone,
-        } : undefined,
-        code: t.code || t.trans_number,
-        type: 'INVOICE',
-        trans_date: t.trans_date,
-        due_date: t.due_date,
-        amount: Number(t.total_amount || 0),
-        paid_amount: Number(t.paid_amount || 0),
-        balance: Number(t.total_amount || 0) - Number(t.paid_amount || 0),
-        days_overdue: calculateDaysOverdue(t.due_date),
-        status: t.payment_status === 'PAID' ? 'PAID' :
-            calculateDaysOverdue(t.due_date) > 0 ? 'OVERDUE' :
-                Number(t.paid_amount) > 0 ? 'PARTIAL' : 'UNPAID',
-        payment_status: t.payment_status,
-        description: t.description,
-    }));
-
-    // Filter only unpaid items (PENDING, PARTIAL, or UNPAID)
-    let items = allItems.filter((i: any) =>
-        i.payment_status === 'PENDING' ||
-        i.payment_status === 'PARTIAL' ||
-        i.payment_status === 'UNPAID'
-    );
-
-    // Apply additional filter based on params
-    if (params.status === 'OVERDUE') {
-        items = items.filter((i: any) => i.days_overdue > 0);
-    }
-
-    return {
-        items,
-        total: items.length,
-        page: 1,
-        limit: 20,
-        hasMore: items.length >= 20,
-        summary: {
-            total_receivable: items.reduce((sum: number, i: any) => sum + i.balance, 0),
-            total_overdue: items.filter((i: any) => i.days_overdue > 0).reduce((sum: number, i: any) => sum + i.balance, 0),
-            total_paid_this_month: 0,
-        },
-    };
+    return json.data;
 }
 
 // Helper to calculate days overdue

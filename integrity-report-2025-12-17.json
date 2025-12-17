@@ -1,0 +1,30 @@
+{
+  "generated_at": "2025-12-17T03:48:05.734Z",
+  "summary": {
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 2,
+    "total": 2
+  },
+  "issues": [
+    {
+      "category": "Future Date",
+      "severity": "LOW",
+      "description": "CP-2412-002: Date is 2025-12-19",
+      "record_code": "CP-2412-002",
+      "field": "trans_date",
+      "expected": "<= today",
+      "actual": "2025-12-19"
+    },
+    {
+      "category": "Future Date",
+      "severity": "LOW",
+      "description": "CP-2412-003: Date is 2025-12-24",
+      "record_code": "CP-2412-003",
+      "field": "trans_date",
+      "expected": "<= today",
+      "actual": "2025-12-24"
+    }
+  ]
+}

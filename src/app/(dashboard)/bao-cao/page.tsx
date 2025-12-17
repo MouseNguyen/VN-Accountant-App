@@ -58,7 +58,22 @@ const DATE_PRESETS = [
     { value: 'last30days', label: '30 ngày qua' },
     { value: 'thisMonth', label: 'Tháng này' },
     { value: 'lastMonth', label: 'Tháng trước' },
+    { value: 'thisQuarter', label: 'Quý này' },
+    { value: 'lastQuarter', label: 'Quý trước' },
+    { value: 'thisYear', label: 'Năm nay' },
+    { value: 'lastYear', label: 'Năm trước' },
+    { value: 'all', label: 'Tất cả' },
 ];
+
+function getQuarterDates(date: Date, offsetQuarters: number = 0): { start: Date; end: Date } {
+    const quarter = Math.floor(date.getMonth() / 3) + offsetQuarters;
+    const year = date.getFullYear() + Math.floor(quarter / 4);
+    const adjustedQuarter = ((quarter % 4) + 4) % 4;
+    const startMonth = adjustedQuarter * 3;
+    const start = new Date(year, startMonth, 1);
+    const end = new Date(year, startMonth + 3, 0);
+    return { start, end };
+}
 
 function getDateRange(preset: string): { start_date: string; end_date: string } {
     const today = new Date();
@@ -84,6 +99,30 @@ function getDateRange(preset: string): { start_date: string; end_date: string } 
             return {
                 start_date: formatDate(startOfMonth(lastMonth)),
                 end_date: formatDate(endOfMonth(lastMonth)),
+            };
+        case 'thisQuarter': {
+            const { start, end } = getQuarterDates(today, 0);
+            return { start_date: formatDate(start), end_date: formatDate(end) };
+        }
+        case 'lastQuarter': {
+            const { start, end } = getQuarterDates(today, -1);
+            return { start_date: formatDate(start), end_date: formatDate(end) };
+        }
+        case 'thisYear':
+            return {
+                start_date: formatDate(new Date(today.getFullYear(), 0, 1)),
+                end_date: formatDate(new Date(today.getFullYear(), 11, 31)),
+            };
+        case 'lastYear':
+            return {
+                start_date: formatDate(new Date(today.getFullYear() - 1, 0, 1)),
+                end_date: formatDate(new Date(today.getFullYear() - 1, 11, 31)),
+            };
+        case 'all':
+            // Very early date to include all data
+            return {
+                start_date: '2020-01-01',
+                end_date: formatDate(today),
             };
         default:
             return { start_date: formatDate(subDays(today, 30)), end_date: formatDate(today) };
@@ -239,21 +278,23 @@ export default function BaoCaoPage() {
                             isLoading={loadingProfitLoss}
                         />
                         <MetricCard
-                            title="Chi phí"
-                            value={formatMoney(profitLossData?.total_expense)}
+                            title="Tổng chi"
+                            value={formatMoney(incomeExpenseData?.total_expense)}
                             icon={TrendingDown}
                             color="text-red-600"
                             bgColor="bg-red-50 dark:bg-red-900/20"
-                            isLoading={loadingProfitLoss}
+                            isLoading={loadingIncomeExpense}
                         />
                         <MetricCard
                             title="Lợi nhuận"
-                            value={formatMoney(profitLossData?.net_profit)}
+                            value={formatMoney(incomeExpenseData?.net)}
                             icon={Wallet}
-                            color={profitLossData?.net_profit && profitLossData.net_profit >= 0 ? 'text-green-600' : 'text-red-600'}
-                            bgColor={profitLossData?.net_profit && profitLossData.net_profit >= 0 ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}
-                            badge={profitMargin ? `${profitMargin.toFixed(1)}%` : undefined}
-                            isLoading={loadingProfitLoss}
+                            color={(incomeExpenseData?.net ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}
+                            bgColor={(incomeExpenseData?.net ?? 0) >= 0 ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20'}
+                            badge={incomeExpenseData?.total_income && incomeExpenseData.total_income > 0
+                                ? `${((incomeExpenseData.net / incomeExpenseData.total_income) * 100).toFixed(1)}%`
+                                : undefined}
+                            isLoading={loadingIncomeExpense}
                         />
                         <MetricCard
                             title="Tồn kho"
@@ -298,7 +339,10 @@ export default function BaoCaoPage() {
                                         <div className="flex items-center justify-between p-3 bg-red-50 dark:bg-red-900/20 rounded-lg">
                                             <div className="flex items-center gap-2">
                                                 <ShoppingCart className="h-4 w-4 text-red-600" />
-                                                <span>Mua hàng</span>
+                                                <div>
+                                                    <span>Tổng chi</span>
+                                                    <span className="text-xs text-muted-foreground ml-1">(Chi phí + Mua hàng)</span>
+                                                </div>
                                             </div>
                                             <span className="font-bold text-red-600">
                                                 {formatMoney(incomeExpenseData?.total_expense)}

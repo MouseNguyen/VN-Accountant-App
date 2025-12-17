@@ -129,7 +129,7 @@ function formatMovement(movement: any): StockMovement {
 }
 
 // ==========================================
-// GET STOCK LIST
+// GET STOCK LIST - Query from Products, LEFT JOIN Stocks
 // ==========================================
 
 export async function getStocks(
@@ -139,86 +139,110 @@ export async function getStocks(
     const { page = 1, limit = 20 } = params;
     const skip = (page - 1) * limit;
 
-    // Build where clause
-    const where: any = {
+    // Build where clause for Products (source of truth)
+    const productWhere: any = {
         farm_id: farmId,
-        product: { deleted_at: null },
+        deleted_at: null,
+        is_active: true,
     };
 
     if (params.search) {
-        where.product = {
-            ...where.product,
-            OR: [
-                { code: { contains: params.search, mode: 'insensitive' } },
-                { name: { contains: params.search, mode: 'insensitive' } },
-            ],
-        };
+        productWhere.OR = [
+            { code: { contains: params.search, mode: 'insensitive' } },
+            { name: { contains: params.search, mode: 'insensitive' } },
+        ];
     }
 
     if (params.category) {
-        where.product = { ...where.product, category: params.category };
+        productWhere.category = params.category;
     }
 
-    if (params.location_code) {
-        where.location_code = params.location_code;
-    }
-
-    if (params.out_of_stock) {
-        where.quantity = { lte: 0 };
-    }
-
-    // Query
-    const [items, total, summaryData] = await Promise.all([
-        prisma.stock.findMany({
-            where,
+    // Query Products with optional Stock join
+    const [products, totalProducts] = await Promise.all([
+        prisma.product.findMany({
+            where: productWhere,
             include: {
-                product: {
-                    select: { id: true, code: true, name: true, unit: true, category: true },
+                stocks: {
+                    where: { location_code: params.location_code || 'DEFAULT' },
+                    take: 1,
                 },
             },
             orderBy: params.sort_by === 'name'
-                ? { product: { name: params.sort_order } }
-                : { [params.sort_by || 'updated_at']: params.sort_order || 'desc' },
+                ? { name: params.sort_order || 'asc' }
+                : params.sort_by === 'quantity'
+                    ? { stock_qty: params.sort_order || 'desc' }
+                    : { updated_at: params.sort_order || 'desc' },
             skip,
             take: limit,
         }),
-        prisma.stock.count({ where }),
-        // Summary aggregate
-        prisma.stock.aggregate({
-            where: { farm_id: farmId, product: { deleted_at: null } },
-            _sum: { total_value: true },
-            _count: true,
-        }),
+        prisma.product.count({ where: productWhere }),
     ]);
 
-    // Count low stock and out of stock
-    const [outOfStockCount] = await Promise.all([
-        prisma.stock.count({
-            where: { farm_id: farmId, quantity: { lte: 0 }, product: { deleted_at: null } },
-        }),
-    ]);
+    // Map products to stock items (with fallback to Product.stock_qty if no Stock record)
+    const items = products.map((product) => {
+        const stock = product.stocks[0];
 
-    // Low stock count (where quantity <= min_quantity)
-    const lowStockResult = await prisma.$queryRaw<[{ count: string }]>`
-    SELECT COUNT(*)::text as count FROM stocks s
-    JOIN products p ON s.product_id = p.id
-    WHERE s.farm_id = ${farmId}
-      AND p.deleted_at IS NULL
-      AND s.min_quantity IS NOT NULL
-      AND s.quantity <= s.min_quantity
-      AND s.quantity > 0
-  `;
-    const lowStockCount = parseInt(lowStockResult[0]?.count || '0', 10);
+        // Use Stock record if available, otherwise fallback to Product fields
+        const quantity = stock ? Number(stock.quantity) : Number(product.stock_qty);
+        const avgCost = stock ? Number(stock.avg_cost) : Number(product.avg_cost || product.purchase_price);
+        const totalValue = stock ? Number(stock.total_value) : quantity * avgCost;
+        const minQuantity = stock?.min_quantity ? Number(stock.min_quantity) : Number(product.min_stock);
+
+        return {
+            id: stock?.id || `product-${product.id}`,
+            product_id: product.id,
+            location_code: stock?.location_code || 'DEFAULT',
+            quantity,
+            avg_cost: avgCost,
+            total_value: totalValue,
+            min_quantity: minQuantity,
+            last_movement_at: stock?.last_movement_at?.toISOString() || null,
+            updated_at: stock?.updated_at?.toISOString() || product.updated_at.toISOString(),
+            product: {
+                id: product.id,
+                code: product.code,
+                name: product.name,
+                unit: product.unit,
+                category: product.category,
+            },
+        };
+    });
+
+    // Filter out_of_stock if param is set
+    const filteredItems = params.out_of_stock
+        ? items.filter(item => item.quantity <= 0)
+        : items;
+
+    // Summary: Calculate from all products
+    const allProducts = await prisma.product.findMany({
+        where: { farm_id: farmId, deleted_at: null, is_active: true },
+        include: { stocks: { take: 1 } },
+    });
+
+    let totalValue = 0;
+    let lowStockCount = 0;
+    let outOfStockCount = 0;
+
+    for (const p of allProducts) {
+        const stock = p.stocks[0];
+        const qty = stock ? Number(stock.quantity) : Number(p.stock_qty);
+        const avg = stock ? Number(stock.avg_cost) : Number(p.avg_cost || p.purchase_price);
+        const minQty = stock?.min_quantity ? Number(stock.min_quantity) : Number(p.min_stock);
+
+        totalValue += qty * avg;
+        if (qty <= 0) outOfStockCount++;
+        else if (minQty > 0 && qty <= minQty) lowStockCount++;
+    }
 
     return {
-        items: items.map(formatStock),
-        total,
+        items: filteredItems,
+        total: params.out_of_stock ? filteredItems.length : totalProducts,
         page,
         limit,
-        hasMore: page * limit < total,
+        hasMore: page * limit < totalProducts,
         summary: {
-            total_products: summaryData._count,
-            total_value: Number(summaryData._sum.total_value || 0),
+            total_products: allProducts.length,
+            total_value: totalValue,
             low_stock_count: lowStockCount,
             out_of_stock_count: outOfStockCount,
         },

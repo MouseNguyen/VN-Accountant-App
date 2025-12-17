@@ -62,10 +62,10 @@ export function divide(
 }
 
 /**
- * Làm tròn số tiền (2 chữ số thập phân)
+ * Làm tròn số tiền VND (không có chữ số thập phân - VND không có đơn vị nhỏ hơn đồng)
  */
 export function roundMoney(value: number | string | Decimal): number {
-    return toDecimal(value).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
+    return toDecimal(value).toDecimalPlaces(0, Decimal.ROUND_HALF_UP).toNumber();
 }
 
 /**

@@ -28,9 +28,9 @@ export const incomeExpenseReportSchema = z
                 (new Date(data.to).getTime() - new Date(data.from).getTime()) /
                 (1000 * 60 * 60 * 24)
             );
-            return diffDays <= 366;
+            return diffDays <= 3650; // 10 years max for "Tất cả" option
         },
-        { message: 'Khoảng thời gian tối đa là 1 năm', path: ['to'] }
+        { message: 'Khoảng thời gian tối đa là 10 năm', path: ['to'] }
     );
 
 // ==========================================

@@ -306,25 +306,35 @@ export async function getStockCard(farmId: string, params: StockCardParams): Pro
 export async function getStockAgingReport(farmId: string): Promise<StockAgingReport> {
     const now = new Date();
 
-    // Lấy danh sách stocks có tồn
-    const stocks = await prisma.stock.findMany({
+    // Query from Products (source of truth) with LEFT JOIN to Stocks
+    const products = await prisma.product.findMany({
         where: {
             farm_id: farmId,
-            quantity: { gt: 0 },
+            deleted_at: null,
+            is_active: true,
         },
         include: {
-            product: { select: { code: true, name: true, unit: true } },
+            stocks: { take: 1 },
         },
     });
 
     const items: StockAgingItem[] = [];
 
-    for (const stock of stocks) {
+    for (const product of products) {
+        const stock = product.stocks[0];
+
+        // Use Stock record if available, otherwise fallback to Product fields
+        const qty = stock ? Number(stock.quantity) : Number(product.stock_qty);
+        if (qty <= 0) continue; // Skip products with no stock
+
+        const avgCost = stock ? Number(stock.avg_cost) : Number(product.avg_cost || product.purchase_price);
+        const value = qty * avgCost;
+
         // Lấy last movement dates
         const lastIn = await prisma.stockMovement.findFirst({
             where: {
                 farm_id: farmId,
-                product_id: stock.product_id,
+                product_id: product.id,
                 type: { in: ['IN', 'ADJUST_IN'] },
             },
             orderBy: { date: 'desc' },
@@ -334,26 +344,23 @@ export async function getStockAgingReport(farmId: string): Promise<StockAgingRep
         const lastOut = await prisma.stockMovement.findFirst({
             where: {
                 farm_id: farmId,
-                product_id: stock.product_id,
+                product_id: product.id,
                 type: { in: ['OUT', 'ADJUST_OUT'] },
             },
             orderBy: { date: 'desc' },
             select: { date: true },
         });
 
-        const lastMovementDate = stock.last_movement_at || lastIn?.date || lastOut?.date;
+        const lastMovementDate = stock?.last_movement_at || lastIn?.date || lastOut?.date;
         const daysSinceLastMovement = lastMovementDate
             ? Math.floor((now.getTime() - new Date(lastMovementDate).getTime()) / (1000 * 60 * 60 * 24))
             : 999;
 
-        const qty = Number(stock.quantity);
-        const value = Number(stock.total_value);
-
         items.push({
-            product_id: stock.product_id,
-            product_code: stock.product.code,
-            product_name: stock.product.name,
-            unit: stock.product.unit,
+            product_id: product.id,
+            product_code: product.code,
+            product_name: product.name,
+            unit: product.unit,
 
             total_qty: roundQuantity(qty),
             total_value: roundMoney(value),
@@ -404,27 +411,53 @@ export async function getStockAgingReport(farmId: string): Promise<StockAgingRep
 export async function getStockValuationReport(farmId: string): Promise<StockValuationReport> {
     const now = new Date();
 
-    const stocks = await prisma.stock.findMany({
-        where: { farm_id: farmId, quantity: { gt: 0 } },
-        include: {
-            product: { select: { id: true, code: true, name: true, category: true, unit: true } },
+    // Query from Products (source of truth) with LEFT JOIN to Stocks
+    const products = await prisma.product.findMany({
+        where: {
+            farm_id: farmId,
+            deleted_at: null,
+            is_active: true,
         },
-        orderBy: { total_value: 'desc' },
+        include: {
+            stocks: { take: 1 },
+        },
+        orderBy: { name: 'asc' },
     });
 
-    const totalValue = stocks.reduce((sum, s) => sum + Number(s.total_value), 0);
+    // Build items with fallback to Product fields
+    const rawItems: StockValuationItem[] = [];
 
-    const items: StockValuationItem[] = stocks.map((s) => ({
-        product_id: s.product_id,
-        product_code: s.product.code,
-        product_name: s.product.name,
-        category: s.product.category || 'Khác',
-        unit: s.product.unit,
-        quantity: roundQuantity(Number(s.quantity)),
-        avg_cost: roundMoney(Number(s.avg_cost)),
-        total_value: roundMoney(Number(s.total_value)),
-        value_percentage: totalValue > 0 ? roundMoney((Number(s.total_value) / totalValue) * 100) : 0,
-    }));
+    for (const product of products) {
+        const stock = product.stocks[0];
+        const qty = stock ? Number(stock.quantity) : Number(product.stock_qty);
+
+        if (qty <= 0) continue; // Skip products with no stock
+
+        const avgCost = stock ? Number(stock.avg_cost) : Number(product.avg_cost || product.purchase_price);
+        const value = stock ? Number(stock.total_value) : qty * avgCost;
+
+        rawItems.push({
+            product_id: product.id,
+            product_code: product.code,
+            product_name: product.name,
+            category: product.category || 'Khác',
+            unit: product.unit,
+            quantity: roundQuantity(qty),
+            avg_cost: roundMoney(avgCost),
+            total_value: roundMoney(value),
+            value_percentage: 0, // Will calculate below
+        });
+    }
+
+    // Calculate total and percentages
+    const totalValue = rawItems.reduce((sum, item) => sum + item.total_value, 0);
+
+    const items = rawItems
+        .map(item => ({
+            ...item,
+            value_percentage: totalValue > 0 ? roundMoney((item.total_value / totalValue) * 100) : 0,
+        }))
+        .sort((a, b) => b.total_value - a.total_value); // Sort by value desc
 
     // Group by category
     const categoryMap = new Map<string, number>();

@@ -411,7 +411,7 @@ export async function getARAgingReport(farmId: string): Promise<ARAgingReport> {
     FROM partners p
     LEFT JOIN transactions t ON p.id = t.partner_id 
       AND t.farm_id = ${farmId}
-      AND t.trans_type = 'INCOME'
+      AND t.trans_type IN ('INCOME', 'SALE')
       AND t.payment_status IN ('PENDING', 'PARTIAL', 'UNPAID')
       AND (t.total_amount - t.paid_amount) > 0
       AND t.deleted_at IS NULL
@@ -567,7 +567,7 @@ export async function getARSummary(farmId: string): Promise<ARSummary> {
         where: {
             farm_id: farmId,
             deleted_at: null,
-            trans_type: 'INCOME',
+            trans_type: { in: ['INCOME', 'SALE'] },
             payment_status: { in: ['PENDING', 'PARTIAL', 'UNPAID'] },
         },
         select: {
@@ -611,7 +611,7 @@ export async function getARSummary(farmId: string): Promise<ARSummary> {
         where: {
             farm_id: farmId,
             deleted_at: null,
-            trans_type: 'INCOME',
+            trans_type: { in: ['INCOME', 'SALE'] },
             payment_status: 'PAID',
             updated_at: { gte: thisMonthStart },
         },

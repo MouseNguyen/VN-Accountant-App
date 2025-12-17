@@ -75,7 +75,7 @@ async function getCashBalanceWidget(farmId: string): Promise<CashBalanceWidget> 
             where: {
                 farm_id: farmId,
                 trans_date: { gte: todayStart },
-                trans_type: 'INCOME',
+                trans_type: { in: ['INCOME', 'SALE', 'CASH_IN'] },
             },
             _sum: { paid_amount: true },
         }),
@@ -83,21 +83,21 @@ async function getCashBalanceWidget(farmId: string): Promise<CashBalanceWidget> 
             where: {
                 farm_id: farmId,
                 trans_date: { gte: todayStart },
-                trans_type: 'EXPENSE',
+                trans_type: { in: ['EXPENSE', 'PURCHASE', 'CASH_OUT'] },
             },
             _sum: { paid_amount: true },
         }),
         prismaBase.transaction.aggregate({
             where: {
                 farm_id: farmId,
-                trans_type: 'INCOME',
+                trans_type: { in: ['INCOME', 'SALE', 'CASH_IN'] },
             },
             _sum: { paid_amount: true },
         }),
         prismaBase.transaction.aggregate({
             where: {
                 farm_id: farmId,
-                trans_type: 'EXPENSE',
+                trans_type: { in: ['EXPENSE', 'PURCHASE', 'CASH_OUT'] },
             },
             _sum: { paid_amount: true },
         }),
@@ -172,7 +172,7 @@ async function getIncomeExpenseWidget(
             where: {
                 farm_id: farmId,
                 trans_date: { gte: startDate },
-                trans_type: 'INCOME',
+                trans_type: { in: ['INCOME', 'SALE', 'CASH_IN'] },
             },
             _sum: { total_amount: true },
         }),
@@ -180,7 +180,7 @@ async function getIncomeExpenseWidget(
             where: {
                 farm_id: farmId,
                 trans_date: { gte: startDate },
-                trans_type: 'EXPENSE',
+                trans_type: { in: ['EXPENSE', 'PURCHASE', 'CASH_OUT'] },
             },
             _sum: { total_amount: true },
         }),
@@ -198,7 +198,7 @@ async function getIncomeExpenseWidget(
             where: {
                 farm_id: farmId,
                 trans_date: { gte: previousStartDate, lt: previousEndDate },
-                trans_type: 'INCOME',
+                trans_type: { in: ['INCOME', 'SALE', 'CASH_IN'] },
             },
             _sum: { total_amount: true },
         }),
@@ -206,7 +206,7 @@ async function getIncomeExpenseWidget(
             where: {
                 farm_id: farmId,
                 trans_date: { gte: previousStartDate, lt: previousEndDate },
-                trans_type: 'EXPENSE',
+                trans_type: { in: ['EXPENSE', 'PURCHASE', 'CASH_OUT'] },
             },
             _sum: { total_amount: true },
         }),
@@ -312,7 +312,7 @@ async function getTopProductsWidget(
     JOIN products p ON ti.product_id = p.id
     JOIN transactions t ON ti.transaction_id = t.id
     WHERE t.farm_id = ${farmId}
-      AND t.trans_type = 'INCOME'
+      AND t.trans_type IN ('SALE', 'INCOME')
       AND t.trans_date >= ${startDate}
     GROUP BY p.id, p.code, p.name
     ORDER BY revenue DESC
@@ -488,8 +488,8 @@ async function getIncomeExpenseChart(
     }>>`
     SELECT 
       DATE(trans_date) as date,
-      SUM(CASE WHEN trans_type = 'INCOME' THEN total_amount ELSE 0 END)::numeric as income,
-      SUM(CASE WHEN trans_type = 'EXPENSE' THEN total_amount ELSE 0 END)::numeric as expense
+      SUM(CASE WHEN trans_type IN ('SALE', 'INCOME') THEN total_amount ELSE 0 END)::numeric as income,
+      SUM(CASE WHEN trans_type IN ('PURCHASE', 'EXPENSE') THEN total_amount ELSE 0 END)::numeric as expense
     FROM transactions
     WHERE farm_id = ${farmId}
       AND trans_date >= ${startDate}

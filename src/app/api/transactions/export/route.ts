@@ -5,13 +5,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth, type AuthUser } from '@/lib/auth';
 import * as ExcelJS from 'exceljs';
 import prisma from '@/lib/prisma';
+import { transactionExportQuerySchema } from '@/lib/validations/transaction';
 
 export const GET = withAuth(async (request: NextRequest, _context, user: AuthUser) => {
     try {
         const { searchParams } = new URL(request.url);
-        const from = searchParams.get('from');
-        const to = searchParams.get('to');
-        const transType = searchParams.get('trans_type');
+        const query = transactionExportQuerySchema.parse(Object.fromEntries(searchParams));
+
+        const { from, to, trans_type } = query;
 
         // Build query filters
         const where: any = {
@@ -23,10 +24,10 @@ export const GET = withAuth(async (request: NextRequest, _context, user: AuthUse
             where.trans_date = { ...where.trans_date, gte: new Date(from) };
         }
         if (to) {
-            where.trans_date = { ...where.trans_date, lte: new Date(to) };
+            where.trans_date = { ...where.trans_date, lte: new Date(to + 'T23:59:59.999Z') };
         }
-        if (transType && transType !== 'all') {
-            where.trans_type = transType;
+        if (trans_type && trans_type !== 'all') {
+            where.trans_type = trans_type;
         }
 
         // Fetch transactions
@@ -76,7 +77,7 @@ export const GET = withAuth(async (request: NextRequest, _context, user: AuthUse
             sheet.addRow([
                 t.trans_date.toISOString().split('T')[0],
                 t.code || t.trans_number,
-                t.trans_type === 'INCOME' ? 'Thu' : 'Chi',
+                ['SALE', 'INCOME', 'CASH_IN'].includes(t.trans_type) ? 'Thu' : 'Chi',
                 t.partner?.name || t.partner_name || '',
                 t.description || '',
                 Number(t.total_amount),
@@ -100,10 +101,10 @@ export const GET = withAuth(async (request: NextRequest, _context, user: AuthUse
         // Add summary at bottom
         sheet.addRow([]);
         const totalIncome = transactions
-            .filter(t => t.trans_type === 'INCOME')
+            .filter(t => ['SALE', 'INCOME', 'CASH_IN'].includes(t.trans_type))
             .reduce((sum, t) => sum + Number(t.total_amount), 0);
         const totalExpense = transactions
-            .filter(t => t.trans_type === 'EXPENSE')
+            .filter(t => ['PURCHASE', 'EXPENSE', 'CASH_OUT'].includes(t.trans_type))
             .reduce((sum, t) => sum + Number(t.total_amount), 0);
 
         sheet.addRow(['', '', '', '', 'Tổng thu:', totalIncome, '']);

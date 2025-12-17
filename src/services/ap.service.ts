@@ -117,10 +117,11 @@ export async function getAPTransactions(
     const where: any = {
         farm_id: farmId,
         deleted_at: null,
+        // Default to INVOICE type (exclude PAYMENT records from list)
+        type: params.type || 'INVOICE',
     };
 
     if (params.vendor_id) where.vendor_id = params.vendor_id;
-    if (params.type) where.type = params.type;
     if (params.status) where.status = params.status;
 
     if (params.date_from || params.date_to) {
@@ -439,6 +440,33 @@ export async function makePayment(
                     status: newStatus,
                 });
 
+                // Sync to Transaction table (for Báo cáo Công nợ consistency)
+                // AP code pattern: AP-MH-2411-002 -> Transaction code: MH-2411-002
+                if (invoice.transaction_id) {
+                    await tx.transaction.update({
+                        where: { id: invoice.transaction_id },
+                        data: {
+                            paid_amount: newPaidAmount,
+                            payment_status: newStatus,
+                        },
+                    });
+                } else {
+                    // Fallback: try to find by code pattern
+                    const transCode = invoice.code.replace('AP-', '');
+                    const linkedTrans = await tx.transaction.findFirst({
+                        where: { code: transCode, farm_id: farmId },
+                    });
+                    if (linkedTrans) {
+                        await tx.transaction.update({
+                            where: { id: linkedTrans.id },
+                            data: {
+                                paid_amount: newPaidAmount,
+                                payment_status: newStatus,
+                            },
+                        });
+                    }
+                }
+
                 remaining -= allocateAmount;
             }
 
@@ -561,7 +589,7 @@ export async function getPaymentSchedule(farmId: string): Promise<PaymentSchedul
     const unpaidTransactions = await prisma.transaction.findMany({
         where: {
             farm_id: farmId,
-            trans_type: 'EXPENSE',
+            trans_type: { in: ['PURCHASE', 'EXPENSE'] },
             payment_status: { in: ['PENDING', 'PARTIAL', 'UNPAID'] },
             deleted_at: null,
         },

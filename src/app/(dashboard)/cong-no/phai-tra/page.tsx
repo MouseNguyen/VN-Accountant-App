@@ -74,6 +74,9 @@ export default function PhaiTraPage() {
     });
     const { data: summary, isLoading: loadingSummary } = useAPSummary();
 
+    // Filter to only show items with outstanding balance (debt)
+    const unpaidItems = data?.items?.filter((ap) => ap.balance > 0) || [];
+
     const handleSearch = (value: string) => {
         setSearchTerm(value);
         setFilters((prev) => ({ ...prev, page: 1 }));
@@ -217,15 +220,15 @@ export default function PhaiTraPage() {
                             </CardContent>
                         </Card>
                     ))
-                ) : data?.items.length === 0 ? (
+                ) : unpaidItems.length === 0 ? (
                     <Card>
                         <CardContent className="p-8 text-center text-muted-foreground">
                             <Building2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                            <p>Chưa có công nợ phải trả</p>
+                            <p>Không có công nợ phải trả</p>
                         </CardContent>
                     </Card>
                 ) : (
-                    data?.items.map((ap) => (
+                    unpaidItems.map((ap) => (
                         <Card key={ap.id} className="hover:shadow-md transition-shadow">
                             <CardContent className="p-4">
                                 <div className="flex items-start justify-between">
@@ -244,14 +247,14 @@ export default function PhaiTraPage() {
                                             {ap.due_date && (
                                                 <>
                                                     {' → '}
-                                                    <span className={ap.days_overdue > 0 ? 'text-red-500' : ''}>
+                                                    <span className={ap.days_overdue && ap.days_overdue > 0 ? 'text-red-500' : ''}>
                                                         {format(new Date(ap.due_date), 'dd/MM/yyyy', { locale: vi })}
                                                     </span>
                                                 </>
                                             )}
                                         </p>
                                     </div>
-                                    <div className="text-right">
+                                    <div className="text-right space-y-1">
                                         <p className="font-bold text-red-600">{formatMoney(ap.balance)}</p>
                                         {ap.paid_amount > 0 && (
                                             <p className="text-xs text-muted-foreground">
@@ -261,6 +264,16 @@ export default function PhaiTraPage() {
                                         <p className="text-xs text-muted-foreground">
                                             / {formatMoney(ap.amount)}
                                         </p>
+                                        {/* Action button for unpaid/partial */}
+                                        {(ap.status === 'UNPAID' || ap.status === 'PARTIAL') && ap.balance > 0 && (
+                                            <Link
+                                                href={`/cong-no/phai-tra/tra-tien?vendor=${ap.vendor_id}&invoice=${ap.id}&amount=${ap.balance}`}
+                                            >
+                                                <Button variant="ghost" size="sm" className="text-xs">
+                                                    Thanh toán
+                                                </Button>
+                                            </Link>
+                                        )}
                                     </div>
                                 </div>
                             </CardContent>

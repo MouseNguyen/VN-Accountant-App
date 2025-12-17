@@ -218,3 +218,42 @@ export const summaryQuerySchema = z.object({
 export const dailySummaryQuerySchema = z.object({
     days: z.coerce.number().int().min(1).max(365).default(30),
 });
+
+// ==========================================
+// TRANSACTION SUMMARY QUERY SCHEMA
+// ==========================================
+
+export const transactionSummaryQuerySchema = z.object({
+    start_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format: YYYY-MM-DD').optional(),
+    end_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format: YYYY-MM-DD').optional(),
+}).refine(
+    (data) => {
+        if (data.start_date && data.end_date) {
+            return new Date(data.start_date) <= new Date(data.end_date);
+        }
+        return true;
+    },
+    { message: 'start_date phải trước hoặc bằng end_date', path: ['start_date'] }
+);
+
+export type TransactionSummaryQueryInput = z.infer<typeof transactionSummaryQuerySchema>;
+
+// ==========================================
+// TRANSACTION EXPORT QUERY SCHEMA
+// ==========================================
+
+export const transactionExportQuerySchema = z.object({
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format: YYYY-MM-DD').optional(),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format: YYYY-MM-DD').optional(),
+    trans_type: z.enum(['INCOME', 'EXPENSE', 'CASH_IN', 'CASH_OUT', 'all']).default('all'),
+}).refine(
+    (data) => {
+        if (data.from && data.to) {
+            return new Date(data.from) <= new Date(data.to);
+        }
+        return true;
+    },
+    { message: 'from phải trước hoặc bằng to', path: ['from'] }
+);
+
+export type TransactionExportQueryInput = z.infer<typeof transactionExportQuerySchema>;

@@ -182,6 +182,305 @@ async function updateMovingAverageCost(
     });
 }
 
+/**
+ * Sync Stock table when transaction items change
+ * Also creates StockMovement records for audit trail
+ */
+async function syncStockForItem(
+    tx: Prisma.TransactionClient,
+    farmId: string,
+    productId: string,
+    quantity: number,
+    unitPrice: number,
+    isOutbound: boolean, // true for SALE/INCOME, false for PURCHASE/EXPENSE
+    transactionCode: string,
+    transactionId: string,
+    transDate: Date,
+    userId: string | null
+) {
+    // 1. Get current product and stock data
+    const product = await tx.product.findUnique({
+        where: { id: productId },
+        select: { stock_qty: true, avg_cost: true, unit: true },
+    });
+    if (!product) return;
+
+    const stock = await tx.stock.findFirst({
+        where: { farm_id: farmId, product_id: productId },
+    });
+
+    const oldQty = stock ? Number(stock.quantity) : Number(product.stock_qty);
+    const oldAvgCost = stock ? Number(stock.avg_cost) : Number(product.avg_cost);
+
+    // 2. Calculate new values
+    let newQty: number;
+    let newAvgCost: number;
+    let cogsAmount = 0;
+
+    if (isOutbound) {
+        // SALE: decrease stock, keep avg_cost
+        newQty = oldQty - quantity;
+        newAvgCost = oldAvgCost;
+        cogsAmount = roundMoney(quantity * oldAvgCost);
+    } else {
+        // PURCHASE: increase stock, recalculate avg_cost
+        newQty = oldQty + quantity;
+        newAvgCost = calculateMovingAverageCost(oldQty, oldAvgCost, quantity, unitPrice);
+    }
+
+    // 3. Upsert Stock record
+    await tx.stock.upsert({
+        where: {
+            farm_id_product_id_location_code: {
+                farm_id: farmId,
+                product_id: productId,
+                location_code: 'DEFAULT',
+            },
+        },
+        update: {
+            quantity: newQty,
+            avg_cost: newAvgCost,
+            total_value: roundMoney(newQty * newAvgCost),
+            last_movement_at: new Date(),
+        },
+        create: {
+            farm_id: farmId,
+            product_id: productId,
+            location_code: 'DEFAULT',
+            quantity: newQty,
+            avg_cost: newAvgCost,
+            total_value: roundMoney(newQty * newAvgCost),
+            last_movement_at: new Date(),
+        },
+    });
+
+    // 4. Create StockMovement record
+    const movementType = isOutbound ? 'OUT' : 'IN';
+    const movementCode = `${transactionCode}-${productId.slice(-4).toUpperCase()}`;
+
+    await tx.stockMovement.create({
+        data: {
+            farm_id: farmId,
+            type: movementType,
+            code: movementCode,
+            date: transDate,
+            product_id: productId,
+            quantity: quantity,
+            unit: product.unit,
+            unit_price: unitPrice,
+            avg_cost_before: oldAvgCost,
+            avg_cost_after: newAvgCost,
+            cogs_amount: cogsAmount,
+            qty_before: oldQty,
+            qty_after: newQty,
+            from_location: isOutbound ? 'DEFAULT' : null,
+            to_location: isOutbound ? null : 'DEFAULT',
+            transaction_id: transactionId,
+            reason: isOutbound ? 'Bán hàng' : 'Mua hàng',
+            created_by: userId,
+        },
+    });
+}
+
+/**
+ * Reverse stock changes when deleting/updating transaction
+ */
+async function reverseStockForItem(
+    tx: Prisma.TransactionClient,
+    farmId: string,
+    productId: string,
+    quantity: number,
+    isOutbound: boolean,
+    transactionCode: string,
+    transactionId: string,
+    userId: string | null
+) {
+    // Reverse = opposite of original operation
+    const reverseQty = isOutbound ? quantity : -quantity;
+
+    const stock = await tx.stock.findFirst({
+        where: { farm_id: farmId, product_id: productId },
+    });
+
+    if (stock) {
+        const newQty = Number(stock.quantity) + reverseQty;
+        await tx.stock.update({
+            where: { id: stock.id },
+            data: {
+                quantity: newQty,
+                total_value: roundMoney(newQty * Number(stock.avg_cost)),
+                last_movement_at: new Date(),
+            },
+        });
+
+        // Create adjustment movement
+        await tx.stockMovement.create({
+            data: {
+                farm_id: farmId,
+                type: reverseQty > 0 ? 'ADJUST_IN' : 'ADJUST_OUT',
+                code: `REV-${transactionCode}-${productId.slice(-4).toUpperCase()}`,
+                date: new Date(),
+                product_id: productId,
+                quantity: Math.abs(reverseQty),
+                unit: 'kg',
+                unit_price: 0,
+                avg_cost_before: Number(stock.avg_cost),
+                avg_cost_after: Number(stock.avg_cost),
+                cogs_amount: 0,
+                qty_before: Number(stock.quantity),
+                qty_after: newQty,
+                transaction_id: transactionId,
+                reason: 'Điều chỉnh do xóa/sửa giao dịch',
+                created_by: userId,
+            },
+        });
+    }
+}
+
+/**
+ * Create AR Transaction for unpaid SALE/INCOME
+ */
+async function createARForTransaction(
+    tx: Prisma.TransactionClient,
+    farmId: string,
+    transactionId: string,
+    transactionCode: string,
+    customerId: string,
+    transDate: Date,
+    totalAmount: number,
+    paidAmount: number
+) {
+    const balance = totalAmount - paidAmount;
+    if (balance <= 0) return; // Fully paid, no AR needed
+
+    // Get customer payment terms
+    const customer = await tx.partner.findUnique({
+        where: { id: customerId },
+        select: { payment_term_days: true },
+    });
+
+    const dueDate = new Date(transDate);
+    dueDate.setDate(dueDate.getDate() + (customer?.payment_term_days || 30));
+
+    // Generate AR code
+    const dateStr = transDate.toISOString().split('T')[0].replace(/-/g, '');
+    const count = await tx.aRTransaction.count({
+        where: { farm_id: farmId, trans_date: transDate },
+    });
+    const arCode = `AR-${dateStr}-${String(count + 1).padStart(3, '0')}`;
+
+    await tx.aRTransaction.create({
+        data: {
+            farm_id: farmId,
+            customer_id: customerId,
+            transaction_id: transactionId,
+            type: 'INVOICE',
+            code: arCode,
+            trans_date: transDate,
+            amount: totalAmount,
+            paid_amount: paidAmount,
+            balance: balance,
+            due_date: dueDate,
+            status: paidAmount > 0 ? 'PARTIAL' : 'UNPAID',
+        },
+    });
+}
+
+/**
+ * Create AP Transaction for unpaid PURCHASE/EXPENSE
+ */
+async function createAPForTransaction(
+    tx: Prisma.TransactionClient,
+    farmId: string,
+    transactionId: string,
+    transactionCode: string,
+    vendorId: string,
+    transDate: Date,
+    totalAmount: number,
+    paidAmount: number
+) {
+    const balance = totalAmount - paidAmount;
+    if (balance <= 0) return; // Fully paid, no AP needed
+
+    // Get vendor payment terms
+    const vendor = await tx.partner.findUnique({
+        where: { id: vendorId },
+        select: { payment_term_days: true },
+    });
+
+    const dueDate = new Date(transDate);
+    dueDate.setDate(dueDate.getDate() + (vendor?.payment_term_days || 30));
+
+    // Generate AP code
+    const dateStr = transDate.toISOString().split('T')[0].replace(/-/g, '');
+    const count = await tx.aPTransaction.count({
+        where: { farm_id: farmId, trans_date: transDate },
+    });
+    const apCode = `AP-${dateStr}-${String(count + 1).padStart(3, '0')}`;
+
+    await tx.aPTransaction.create({
+        data: {
+            farm_id: farmId,
+            vendor_id: vendorId,
+            transaction_id: transactionId,
+            type: 'INVOICE',
+            code: apCode,
+            trans_date: transDate,
+            amount: totalAmount,
+            paid_amount: paidAmount,
+            balance: balance,
+            due_date: dueDate,
+            status: paidAmount > 0 ? 'PARTIAL' : 'UNPAID',
+        },
+    });
+}
+
+/**
+ * Update AR/AP when payment is made
+ */
+async function updateARAPForPayment(
+    tx: Prisma.TransactionClient,
+    transactionId: string,
+    paymentAmount: number,
+    transType: string
+) {
+    if (['SALE', 'INCOME'].includes(transType)) {
+        // Update AR
+        const arTrans = await tx.aRTransaction.findFirst({
+            where: { transaction_id: transactionId },
+        });
+        if (arTrans) {
+            const newPaidAmount = Number(arTrans.paid_amount) + paymentAmount;
+            const newBalance = Number(arTrans.amount) - newPaidAmount;
+            await tx.aRTransaction.update({
+                where: { id: arTrans.id },
+                data: {
+                    paid_amount: newPaidAmount,
+                    balance: Math.max(0, newBalance),
+                    status: newBalance <= 0 ? 'PAID' : 'PARTIAL',
+                },
+            });
+        }
+    } else if (['PURCHASE', 'EXPENSE'].includes(transType)) {
+        // Update AP
+        const apTrans = await tx.aPTransaction.findFirst({
+            where: { transaction_id: transactionId },
+        });
+        if (apTrans) {
+            const newPaidAmount = Number(apTrans.paid_amount) + paymentAmount;
+            const newBalance = Number(apTrans.amount) - newPaidAmount;
+            await tx.aPTransaction.update({
+                where: { id: apTrans.id },
+                data: {
+                    paid_amount: newPaidAmount,
+                    balance: Math.max(0, newBalance),
+                    status: newBalance <= 0 ? 'PAID' : 'PARTIAL',
+                },
+            });
+        }
+    }
+}
+
 // ==========================================
 // MAIN FUNCTIONS
 // ==========================================
@@ -196,6 +495,30 @@ export async function createTransaction(input: CreateTransactionInput) {
     // Sử dụng transaction với timeout
     return prismaBase.$transaction(
         async (tx) => {
+            // 0. Validate input items
+            if (!input.items || input.items.length === 0) {
+                throw new Error('Giao dịch phải có ít nhất 1 sản phẩm/dịch vụ');
+            }
+
+            // Validate each item
+            for (let i = 0; i < input.items.length; i++) {
+                const item = input.items[i];
+                const itemLabel = item.description || `Dòng ${i + 1}`;
+
+                if (item.quantity <= 0) {
+                    throw new Error(`${itemLabel}: Số lượng phải lớn hơn 0`);
+                }
+                if (item.unit_price < 0) {
+                    throw new Error(`${itemLabel}: Đơn giá không được âm`);
+                }
+                if ((item.tax_rate || 0) < 0 || (item.tax_rate || 0) > 100) {
+                    throw new Error(`${itemLabel}: Thuế suất phải từ 0% đến 100%`);
+                }
+                if ((item.discount_percent || 0) < 0 || (item.discount_percent || 0) > 100) {
+                    throw new Error(`${itemLabel}: Chiết khấu phải từ 0% đến 100%`);
+                }
+            }
+
             // 1. Kiểm tra tồn kho nếu là phiếu BÁN (INCOME)
             if (input.trans_type === 'INCOME') {
                 const stockCheck = await checkStockAvailability(tx, farmId, input.items);
@@ -292,26 +615,38 @@ export async function createTransaction(input: CreateTransactionInput) {
                 },
             });
 
-            // 9. Cập nhật tồn kho & giá vốn
+            // 9. Cập nhật tồn kho, Stock table, và StockMovement
+            const isOutbound = ['SALE', 'INCOME'].includes(input.trans_type);
             for (const item of itemsWithTotals) {
                 if (!item.product_id) continue;
 
-                if (input.trans_type === 'INCOME') {
-                    // BÁN -> Giảm tồn kho
+                // Update Product.stock_qty (legacy)
+                if (isOutbound) {
                     await tx.product.update({
                         where: { id: item.product_id },
                         data: { stock_qty: { decrement: item.quantity } },
                     });
                 } else {
-                    // MUA -> Tăng tồn kho + Cập nhật giá vốn trung bình
                     await tx.product.update({
                         where: { id: item.product_id },
                         data: { stock_qty: { increment: item.quantity } },
                     });
-
-                    // Cập nhật Moving Average Cost
                     await updateMovingAverageCost(tx, item.product_id, item.quantity, item.unit_price);
                 }
+
+                // Sync Stock table and create StockMovement
+                await syncStockForItem(
+                    tx,
+                    farmId,
+                    item.product_id,
+                    item.quantity,
+                    item.unit_price,
+                    isOutbound,
+                    code,
+                    transaction.id,
+                    transDate,
+                    context?.userId || null
+                );
             }
 
             // 10. Cập nhật công nợ Partner
@@ -319,7 +654,7 @@ export async function createTransaction(input: CreateTransactionInput) {
                 const outstandingAmount = totalAmount - paidAmount;
 
                 if (outstandingAmount > 0) {
-                    if (input.trans_type === 'INCOME') {
+                    if (isOutbound) {
                         // Khách nợ ta (balance dương)
                         await tx.partner.update({
                             where: { id: input.partner_id },
@@ -333,6 +668,31 @@ export async function createTransaction(input: CreateTransactionInput) {
                         });
                     }
                 }
+
+                // 10.1 Auto-create AR/AP for unpaid transactions
+                if (isOutbound) {
+                    await createARForTransaction(
+                        tx,
+                        farmId,
+                        transaction.id,
+                        code,
+                        input.partner_id,
+                        transDate,
+                        totalAmount,
+                        paidAmount
+                    );
+                } else {
+                    await createAPForTransaction(
+                        tx,
+                        farmId,
+                        transaction.id,
+                        code,
+                        input.partner_id,
+                        transDate,
+                        totalAmount,
+                        paidAmount
+                    );
+                }
             }
 
             // 11. Audit Log
@@ -341,7 +701,7 @@ export async function createTransaction(input: CreateTransactionInput) {
                 entityType: 'Transaction',
                 entityId: transaction.id,
                 newValues: { code, trans_type: input.trans_type, total_amount: totalAmount },
-                description: `Tạo ${input.trans_type === 'INCOME' ? 'phiếu thu' : 'phiếu chi'}: ${code}`,
+                description: `Tạo ${isOutbound ? 'phiếu thu' : 'phiếu chi'}: ${code}`,
             });
 
             return transaction;
@@ -386,6 +746,27 @@ export async function updateTransaction(id: string, input: UpdateTransactionInpu
             );
             if (existing.payment_status === 'PAID' && daysSinceCreated > 7) {
                 throw new Error('Không thể sửa giao dịch đã thanh toán quá 7 ngày');
+            }
+
+            // 3.1. Validate input items (if updating items)
+            if (input.items && input.items.length > 0) {
+                for (let i = 0; i < input.items.length; i++) {
+                    const item = input.items[i];
+                    const itemLabel = item.description || `Dòng ${i + 1}`;
+
+                    if (item.quantity <= 0) {
+                        throw new Error(`${itemLabel}: Số lượng phải lớn hơn 0`);
+                    }
+                    if (item.unit_price < 0) {
+                        throw new Error(`${itemLabel}: Đơn giá không được âm`);
+                    }
+                    if ((item.tax_rate || 0) < 0 || (item.tax_rate || 0) > 100) {
+                        throw new Error(`${itemLabel}: Thuế suất phải từ 0% đến 100%`);
+                    }
+                    if ((item.discount_percent || 0) < 0 || (item.discount_percent || 0) > 100) {
+                        throw new Error(`${itemLabel}: Chiết khấu phải từ 0% đến 100%`);
+                    }
+                }
             }
 
             // 4. Hoàn trả tồn kho cũ (REVERSE)
@@ -702,6 +1083,9 @@ export async function addPayment(transactionId: string, input: AddPaymentInput) 
                         data: { balance: { increment: input.amount } },
                     });
                 }
+
+                // Sync AR/AP records
+                await updateARAPForPayment(tx, transactionId, input.amount, transaction.trans_type);
             }
 
             await createAuditLog({

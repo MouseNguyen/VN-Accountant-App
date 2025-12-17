@@ -1,35 +1,20 @@
 // scripts/check-user-farm.ts
 import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+const p = new PrismaClient();
 
 async function main() {
-    // Find user test@test.com
-    const user = await prisma.user.findFirst({
-        where: { email: 'test@test.com' },
-        include: { farm: true },
+    const user = await p.user.findFirst({
+        where: { email: 'test@labaerp.com' },
+        select: { email: true, farm_id: true, farm: { select: { name: true, id: true } } }
     });
+    console.log('User:', JSON.stringify(user, null, 2));
 
-    console.log('👤 User:', user?.email);
-    console.log('🏠 Farm ID:', user?.farm_id);
-    console.log('🏠 Farm Name:', user?.farm?.name);
-
-    // List all farms
-    const farms = await prisma.farm.findMany({
-        select: { id: true, name: true },
+    // Check if ARTransaction farm_id matches
+    const arSample = await p.aRTransaction.findFirst({
+        select: { farm_id: true, code: true }
     });
-    console.log('\n📋 All farms:');
-    farms.forEach((f) => console.log(`  - ${f.name}: ${f.id}`));
-
-    // Check AR data in user's farm
-    if (user?.farm_id) {
-        const arCount = await prisma.aRTransaction.count({
-            where: { farm_id: user.farm_id },
-        });
-        console.log(`\n📄 AR transactions in user's farm: ${arCount}`);
-    }
+    console.log('AR Sample farm_id:', arSample?.farm_id);
+    console.log('Match:', user?.farm_id === arSample?.farm_id);
 }
 
-main()
-    .catch(console.error)
-    .finally(() => prisma.$disconnect());
+main().catch(console.error).finally(() => p.$disconnect());
