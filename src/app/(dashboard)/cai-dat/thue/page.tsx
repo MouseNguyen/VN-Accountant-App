@@ -5,7 +5,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { api } from '@/lib/api';
+import { apiClient } from '@/lib/api-client';
 import { TaxRule } from '@/types/tax-engine';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -91,8 +91,8 @@ export default function TaxSettingsPage() {
     const { data: updateCheck, isLoading: checkingUpdates } = useQuery({
         queryKey: ['tax-updates'],
         queryFn: async () => {
-            const res = await api.get('/settings/tax-rules/updates');
-            return res.data.data as UpdateCheckData;
+            const res = await apiClient.get<UpdateCheckData>('/settings/tax-rules/updates');
+            return res.data as UpdateCheckData;
         },
         staleTime: 60000, // 1 minute
     });
@@ -101,8 +101,8 @@ export default function TaxSettingsPage() {
     const { data: rulesData, isLoading: loadingRules } = useQuery({
         queryKey: ['tax-rules'],
         queryFn: async () => {
-            const res = await api.get('/settings/tax-rules');
-            return res.data.data as TaxRulesData;
+            const res = await apiClient.get<TaxRulesData>('/settings/tax-rules');
+            return res.data as TaxRulesData;
         },
     });
 
@@ -110,21 +110,21 @@ export default function TaxSettingsPage() {
     const { data: previewData, isLoading: loadingPreview } = useQuery({
         queryKey: ['tax-sync-preview'],
         queryFn: async () => {
-            const res = await api.get('/settings/tax-rules/sync');
-            return res.data.data as SyncPreviewData;
+            const res = await apiClient.get<SyncPreviewData>('/settings/tax-rules/sync');
+            return res.data as SyncPreviewData;
         },
         enabled: showPreview,
     });
 
     // Sync mutation
     const syncMutation = useMutation({
-        mutationFn: () => api.post('/settings/tax-rules/sync'),
-        onSuccess: (res) => {
+        mutationFn: () => apiClient.post('/settings/tax-rules/sync', {}),
+        onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['tax-rules'] });
             queryClient.invalidateQueries({ queryKey: ['tax-updates'] });
             queryClient.invalidateQueries({ queryKey: ['tax-sync-preview'] });
             setShowPreview(false);
-            toast.success(res.data.message);
+            toast.success('Đồng bộ thành công!');
         },
         onError: (error) => {
             toast.error('Đồng bộ thất bại');
@@ -348,7 +348,7 @@ function TaxRuleRow({ rule }: { rule: TaxRule }) {
 
     const updateMutation = useMutation({
         mutationFn: (newValue: number) =>
-            api.put(`/settings/tax-rules/${rule.id}`, { value: newValue }),
+            apiClient.put(`/settings/tax-rules/${rule.id}`, { value: newValue }),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['tax-rules'] });
             setIsEditing(false);
@@ -358,7 +358,7 @@ function TaxRuleRow({ rule }: { rule: TaxRule }) {
     });
 
     const resetMutation = useMutation({
-        mutationFn: () => api.post(`/settings/tax-rules/${rule.id}/reset`),
+        mutationFn: () => apiClient.post(`/settings/tax-rules/${rule.id}/reset`, {}),
         onSuccess: () => {
             queryClient.invalidateQueries({ queryKey: ['tax-rules'] });
             toast.success('Đã khôi phục mặc định!');
@@ -390,7 +390,7 @@ function TaxRuleRow({ rule }: { rule: TaxRule }) {
                         <Badge variant="outline" className="text-amber-600 border-amber-300 text-xs">
                             ✏️ Đã tùy chỉnh
                         </Badge>
-                        {rule.original_value !== null && rule.original_value !== rule.value && (
+                        {rule.original_value !== null && rule.original_value !== undefined && rule.original_value !== rule.value && (
                             <span className="text-xs text-muted-foreground">
                                 (Mặc định: {formatValue(rule.original_value, rule.rule_type)})
                             </span>

@@ -42,8 +42,6 @@ describe('PIT Calculator', () => {
 
             await expect(calculatePIT('farm-1', input)).rejects.toThrow('Nhân viên không tồn tại');
         });
-    });
-        });
 
         it('calculates PIT for a flat rate worker', async () => {
             // Mock high earner worker - flat rate tax

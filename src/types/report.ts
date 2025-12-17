@@ -257,8 +257,15 @@ export interface ReportParams {
 }
 
 export interface ExportParams {
-    report_type: 'income_expense' | 'profit_loss' | 'inventory' | 'payable';
+    report_type: 'income_expense' | 'profit_loss' | 'inventory' | 'payable' | 'balance_sheet' | 'income_statement';
     format: 'xlsx';
     from?: string;
     to?: string;
 }
+
+// ==========================================
+// BÁO CÁO TÀI CHÍNH (Financial Statements)
+// ==========================================
+
+// Re-export from financial-statement.service.ts for convenience
+export type { BalanceSheet, IncomeStatement, BalanceSheetSection, IncomeStatementSection } from '@/services/financial-statement.service';

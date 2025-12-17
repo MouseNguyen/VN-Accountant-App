@@ -52,7 +52,7 @@ export const POST = withAuth(async (
     user: AuthUser
 ) => {
     try {
-        const farmId = user.currentFarmId;
+        const farmId = user.farm_id;
         if (!farmId) {
             return NextResponse.json(
                 { success: false, error: 'Chưa chọn trang trại' },

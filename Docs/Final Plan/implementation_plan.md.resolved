@@ -1,0 +1,1328 @@
+# 📋 LABA ERP - KẾ HOẠCH CHI TIẾT PHASE 1
+
+## 🎯 Tổng Quan Phase 1: Core ERP Mini
+
+**Mục tiêu:** Xây dựng hệ thống ERP mini cơ bản với 9 tasks  
+**Thời gian:** 38-49 giờ (~1-1.5 tuần)  
+**Đối tượng:** Chủ nông trại lớn tuổi, ít rành công nghệ
+
+---
+
+## 📊 SƠ ĐỒ KẾT NỐI GIỮA CÁC TASKS
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          PHASE 1 TASK FLOW                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │ TASK 1: Setup Project & Database Schema                           │  │
+│  │ ═══════════════════════════════════════                            │  │
+│  │ Output: Prisma schema + Seed data                                  │  │
+│  │ Tables: Farm, User, Account, Product, Partner,                     │  │
+│  │         Transaction, TransactionItem, Worker, WorkLog, Invoice    │  │
+│  └───────────────────────────┬───────────────────────────────────────┘  │
+│                              │                                          │
+│                              ▼                                          │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │ TASK 2: Authentication                                             │  │
+│  │ ═══════════════════════                                            │  │
+│  │ Input:  Users table từ Task 1                                      │  │
+│  │ Output: JWT Token, Session management                              │  │
+│  │ APIs:   POST /api/auth/register                                    │  │
+│  │         POST /api/auth/login                                       │  │
+│  │         GET  /api/auth/me                                          │  │
+│  └───────────────────────────┬───────────────────────────────────────┘  │
+│                              │                                          │
+│                              ▼                                          │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │ TASK 3: Farm & User Management + Dynamic Labels                    │  │
+│  │ ═══════════════════════════════════════════════                    │  │
+│  │ Input:  Auth context từ Task 2                                     │  │
+│  │ Output: Farm settings, Business Type labels                        │  │
+│  │ APIs:   GET/PUT /api/farms/:id                                     │  │
+│  │         GET/PUT /api/users/:id                                     │  │
+│  │ Hook:   useLabel() - FARM vs RETAIL_FNB                            │  │
+│  └───────────────────────────┬───────────────────────────────────────┘  │
+│                              │                                          │
+│                              ▼                                          │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │ TASK 4: Products & Partners                                        │  │
+│  │ ═══════════════════════════                                        │  │
+│  │ Input:  Farm context từ Task 3                                     │  │
+│  │ Output: Master data cho Transactions                               │  │
+│  │ APIs:   CRUD /api/products, CRUD /api/partners                     │  │
+│  │ Notes:  Partner có flag is_customer / is_supplier                  │  │
+│  └───────────────────────────┬───────────────────────────────────────┘  │
+│                              │                                          │
+│                              ▼                                          │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │ TASK 5: Transactions - Thu/Chi Tiền                                │  │
+│  │ ═══════════════════════════════════                                │  │
+│  │ Input:  Products, Partners từ Task 4                               │  │
+│  │         Account list từ Task 1 seed                                │  │
+│  │ Output: Transaction records, Document numbers                      │  │
+│  │ APIs:   CRUD /api/transactions                                     │  │
+│  │ Types:  CASH_IN, CASH_OUT, BANK_TRANSFER                           │  │
+│  └───────────────────────────┬───────────────────────────────────────┘  │
+│                              │                                          │
+│          ┌───────────────────┼───────────────────┐                      │
+│          │                   │                   │                      │
+│          ▼                   ▼                   ▼                      │
+│  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐            │
+│  │ TASK 6          │ │ TASK 7          │ │ TASK 9          │            │
+│  │ Bán/Mua hàng    │ │ Workers         │ │ OCR             │            │
+│  │ + Công nợ       │ │ + Thuế TNCN     │ │ Integration     │            │
+│  │                 │ │                 │ │                 │            │
+│  │ Input:          │ │ Input:          │ │ Input:          │            │
+│  │ - Products      │ │ - Workers table │ │ - Image upload  │            │
+│  │ - Partners      │ │ - WorkLogs      │ │                 │            │
+│  │ - Trans API     │ │ - Trans API     │ │ Output:         │            │
+│  │                 │ │                 │ │ - Extract data  │            │
+│  │ Output:         │ │ Output:         │ │ - Auto-fill form│            │
+│  │ - SALE trans    │ │ - Payroll trans │ │                 │            │
+│  │ - PURCHASE trans│ │ - PIT calc      │ │ API:            │            │
+│  │ - AP records    │ │                 │ │ POST /api/ocr   │            │
+│  └────────┬────────┘ └────────┬────────┘ └────────┬────────┘            │
+│           │                   │                   │                      │
+│           └───────────────────┼───────────────────┘                      │
+│                               │                                          │
+│                               ▼                                          │
+│  ┌───────────────────────────────────────────────────────────────────┐  │
+│  │ TASK 8: Dashboard & Reports                                        │  │
+│  │ ═══════════════════════════                                        │  │
+│  │ Input:  Tất cả dữ liệu từ Task 5, 6, 7                             │  │
+│  │ Output: Summary cards, Charts, Basic reports                       │  │
+│  │ APIs:   GET /api/dashboard/summary                                 │  │
+│  │         GET /api/dashboard/chart-data                              │  │
+│  │         GET /api/reports/...                                       │  │
+│  └───────────────────────────────────────────────────────────────────┘  │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 📝 CHI TIẾT TỪNG TASK VỚI KẾT NỐI
+
+### Task 1: Setup Project & Database Schema (3-4 giờ)
+
+#### Mục tiêu
+Tạo nền tảng cho toàn bộ hệ thống
+
+#### Inputs
+- Không có (task đầu tiên)
+
+#### Outputs cho các Tasks sau
+| Output | Sử dụng bởi |
+|--------|-------------|
+| `User` table | Task 2 (Auth) |
+| `Farm` table | Task 3 (Farm Settings) |
+| `Product` table | Task 4, 6, 8 |
+| `Partner` table | Task 4, 5, 6, 7 |
+| `Transaction` table | Task 5, 6, 7, 8 |
+| `Worker`, `WorkLog` tables | Task 7 |
+| `Invoice` table | Task 9 (OCR) |
+| `Account` seed data | Task 5, 6, 7 (cho hạch toán) |
+| `TaxRate` seed data | Task 6, 7 (cho thuế VAT, TNCN) |
+
+#### Schema cần tạo
+```prisma
+// Core
+model Farm { ... }
+model User { ... }
+model Account { ... }    // Hệ thống tài khoản kế toán
+
+// Master Data
+model Product { ... }
+model Partner { ... }    // Khách hàng + Nhà cung cấp
+
+// Transactions
+model Transaction { ... }
+model TransactionItem { ... }
+
+// Labor
+model Worker { ... }
+model WorkLog { ... }
+
+// OCR
+model Invoice { ... }
+
+// Tax (seed data)
+model TaxRate { ... }
+```
+
+#### Seed Data (Quan trọng cho P2+)
+```
+accounts:
+  - 111: Tiền mặt
+  - 112: Tiền gửi ngân hàng
+  - 131: Phải thu khách hàng
+  - 156: Hàng hóa
+  - 331: Phải trả nhà cung cấp
+  - 511: Doanh thu
+  - 632: Giá vốn
+  - 642: Chi phí quản lý
+  ...
+
+tax_rates:
+  - VAT_10: 10%
+  - VAT_5: 5%
+  - VAT_0: 0%
+  - PIT_THRESHOLD: 2,000,000đ
+```
+
+#### Kết nối với Phase 2
+> [!IMPORTANT]
+> Schema Task 1 đã bao gồm các trường dự phòng cho:
+> - `stocks`, `stock_movements` (Phase 2)
+> - `ar_transactions`, `ap_transactions` (Phase 2)
+> - `vat_declarations` (Phase 2)
+> - Các fields như `vat_amount`, `cogs`, `is_posted` trong Transaction
+
+#### Checklist hoàn thành
+- [ ] Next.js 14 project initialized
+- [ ] Prisma + PostgreSQL configured
+- [ ] All tables created
+- [ ] Seed data: Accounts, Tax Rates
+- [ ] `npm run build` không lỗi
+
+---
+
+### Task 2: Authentication (3-4 giờ)
+
+#### Mục tiêu
+Xác thực người dùng + bảo vệ routes
+
+#### Dependencies
+| Từ Task | Cần gì |
+|---------|--------|
+| Task 1 | `User` table, `Farm` table |
+
+#### Outputs cho các Tasks sau
+| Output | Sử dụng bởi |
+|--------|-------------|
+| JWT Token | Tất cả API từ Task 3-9 |
+| `user_id` trong context | Query filter cho toàn bộ data |
+| `farm_id` trong context | Multi-tenant support |
+| Protected middleware | Tất cả routes |
+
+#### APIs
+```typescript
+// POST /api/auth/register
+// Input: { email, password, name, phone, business_type }
+// Output: { token, user, farm }
+
+// POST /api/auth/login  
+// Input: { email, password }
+// Output: { token, user, farm }
+
+// GET /api/auth/me
+// Header: Authorization: Bearer <token>
+// Output: { user, farm }
+
+// POST /api/auth/logout
+// Output: { success: true }
+```
+
+#### Flow đăng ký
+```
+User nhập thông tin
+       ↓
+Chọn Business Type (FARM hoặc RETAIL_FNB)
+       ↓
+Tạo User + Tạo Farm mặc định
+       ↓
+Return JWT token
+       ↓
+Redirect to Dashboard
+```
+
+#### Kết nối với Phase 4
+> [!NOTE]
+> Phase 4 sẽ mở rộng:
+> - Session management với `user_sessions` table
+> - Failed login tracking
+> - Refresh token
+> - RBAC (Role-Based Access Control)
+
+#### Checklist hoàn thành
+- [ ] Register API + UI hoạt động
+- [ ] Login API + UI hoạt động
+- [ ] JWT token được lưu trong cookie/localStorage
+- [ ] Protected routes redirect về login nếu chưa auth
+- [ ] business_type được lưu vào Farm
+
+---
+
+### Task 3: Farm & User Management + Dynamic Labels (2-3 giờ)
+
+#### Mục tiêu
+Cài đặt thông tin Farm + Labels động theo loại hình
+
+#### Dependencies
+| Từ Task | Cần gì |
+|---------|--------|
+| Task 1 | `Farm`, `User` tables |
+| Task 2 | Auth context, user_id, farm_id |
+
+#### Outputs cho các Tasks sau
+| Output | Sử dụng bởi |
+|--------|-------------|
+| Farm settings | Tất cả UI (header, reports) |
+| `useLabel()` hook | Task 4 (Product → "Nông sản" vs "Hàng hóa") |
+| | Task 6 ("Bán rau" vs "Bán hàng") |
+| | Task 7 ("Thợ gặt" vs "Nhân viên") |
+
+#### Dynamic Labels
+```typescript
+// src/config/labels.ts
+const labels = {
+  FARM: {
+    product: "Nông sản",
+    partner_customer: "Thương lái",
+    partner_supplier: "Đại lý vật tư",
+    worker: "Thợ",
+    sale: "Thu hoạch & Bán",
+    purchase: "Mua vật tư"
+  },
+  RETAIL_FNB: {
+    product: "Hàng hóa",
+    partner_customer: "Khách hàng",
+    partner_supplier: "Nhà cung cấp",
+    worker: "Nhân viên",
+    sale: "Bán hàng",
+    purchase: "Nhập hàng"
+  }
+}
+
+// Hook useLabel()
+function useLabel() {
+  const { farm } = useFarm();
+  const type = farm?.business_type || 'FARM';
+  return (key: string) => labels[type][key];
+}
+```
+
+#### Checklist hoàn thành
+- [ ] Trang Cài đặt cá nhân
+- [ ] Trang Cài đặt Farm
+- [ ] `useLabel()` hook hoạt động
+- [ ] UI hiển thị labels đúng theo business_type
+
+---
+
+### Task 4: Products & Partners (4-5 giờ)
+
+#### Mục tiêu
+Quản lý sản phẩm và đối tác - Master data cho giao dịch
+
+#### Dependencies
+| Từ Task | Cần gì |
+|---------|--------|
+| Task 1 | `Product`, `Partner` tables |
+| Task 2 | Auth context |
+| Task 3 | Dynamic labels, Farm context |
+
+#### Outputs cho các Tasks sau
+| Output | Sử dụng bởi |
+|--------|-------------|
+| Product list | Task 6 (Bán hàng - chọn SP) |
+| | Task 8 (Dashboard - top products) |
+| Partner list (customers) | Task 5, 6 (Thu tiền, Bán hàng) |
+| Partner list (suppliers) | Task 6 (Mua hàng) |
+| | Task 7 (Optional - liên kết Workers) |
+
+#### Partner Model
+```typescript
+interface Partner {
+  id: string;
+  farm_id: string;
+  name: string;
+  phone?: string;
+  address?: string;
+  tax_code?: string;           // MST - quan trọng cho Phase 2 VAT
+  is_customer: boolean;        // Có thể là khách hàng
+  is_supplier: boolean;        // Có thể là nhà cung cấp
+  credit_limit?: number;       // Hạn mức công nợ
+  balance_ar: number;          // Số dư phải thu → Phase 2
+  balance_ap: number;          // Số dư phải trả → Phase 2
+}
+```
+
+#### Kết nối với Phase 2
+> [!IMPORTANT]
+> Partner.tax_code sẽ được validate trong Phase 2 Task 8 (VAT Declaration)
+
+#### Checklist hoàn thành
+- [ ] CRUD Products hoạt động
+- [ ] CRUD Partners hoạt động
+- [ ] Filter customers / suppliers
+- [ ] Search bằng tên, điện thoại
+- [ ] Labels hiển thị đúng (Nông sản vs Hàng hóa)
+
+---
+
+### Task 5: Transactions - Thu/Chi Tiền (5-6 giờ)
+
+#### Mục tiêu  
+Ghi nhận thu chi đơn giản (chưa có bán hàng)
+
+#### Dependencies
+| Từ Task | Cần gì |
+|---------|--------|
+| Task 1 | `Transaction`, `Account` tables |
+| Task 2 | Auth context |
+| Task 4 | Partners (để link người liên quan) |
+
+#### Outputs cho các Tasks sau
+| Output | Sử dụng bởi |
+|--------|-------------|
+| Transaction records | Task 8 (Dashboard - tổng thu chi) |
+| Document number logic | Task 6, 7 (reuse mã chứng từ) |
+| Transaction service | Task 6, 7 (extend cho SALE, PAYROLL) |
+
+#### Transaction Types (Phase 1)
+```typescript
+enum TransactionType {
+  CASH_IN = 'CASH_IN',           // Thu tiền
+  CASH_OUT = 'CASH_OUT',         // Chi tiền  
+  BANK_TRANSFER = 'BANK_TRANSFER' // Chuyển khoản
+}
+```
+
+#### Document Number Format
+```
+PT-2024-0001  // Phiếu thu
+PC-2024-0001  // Phiếu chi
+CK-2024-0001  // Chuyển khoản
+```
+
+#### Kết nối với Phase 2
+> [!NOTE]
+> Transaction sẽ được mở rộng với:
+> - AUTO_STOCK_IN, AUTO_STOCK_OUT (tự động từ kho)
+> - AR_PAYMENT, AP_PAYMENT (công nợ)
+> - VAT_PAYMENT (nộp thuế)
+
+#### Checklist hoàn thành
+- [ ] Form Thu tiền hoạt động
+- [ ] Form Chi tiền hoạt động  
+- [ ] Tự động sinh số chứng từ
+- [ ] Danh sách giao dịch với filter
+- [ ] Link với Partner (tùy chọn)
+
+---
+
+### Task 6: Bán hàng / Mua hàng + Công nợ (7-9 giờ)
+
+#### Mục tiêu
+Bán hàng với nhiều items + Mua hàng tạo công nợ NCC
+
+#### Dependencies
+| Từ Task | Cần gì |
+|---------|--------|
+| Task 1 | `TransactionItem` table |
+| Task 4 | Products (để chọn SP), Partners (KH/NCC) |
+| Task 5 | Transaction service, Document number |
+
+#### Outputs cho các Tasks sau
+| Output | Sử dụng bởi |
+|--------|-------------|
+| SALE transactions | Task 8 (Dashboard - doanh thu) |
+| PURCHASE transactions | Task 8 (Dashboard - chi phí) |
+| AP balance (công nợ NCC) | Task 8 (Dashboard - nợ phải trả) |
+
+#### Luồng Bán hàng
+```
+Chọn sản phẩm(s)
+       ↓
+Nhập số lượng, đơn giá
+       ↓
+Chọn khách hàng (optional)
+       ↓
+Chọn phương thức: Tiền mặt / Công nợ
+       ↓
+Tạo Transaction type=SALE
+       ↓
+Nếu Công nợ → Cập nhật Partner.balance_ar
+```
+
+#### Luồng Mua hàng (Có công nợ)
+```
+Chọn sản phẩm(s)
+       ↓
+Nhập số lượng, đơn giá
+       ↓
+Chọn nhà cung cấp
+       ↓
+Nhập số tiền trả ngay (có thể = 0)
+       ↓
+Tạo Transaction type=PURCHASE
+       ↓
+Tính công nợ = Total - Đã trả
+       ↓
+Cập nhật Partner.balance_ap
+```
+
+#### Kết nối với Phase 2
+> [!IMPORTANT]
+> Phase 2 sẽ:
+> - Task 2: Tự động tạo StockMovement khi mua/bán
+> - Task 4, 5: Migrate balance_ar/balance_ap sang bảng AR/AP riêng
+> - Thêm tính năng trả công nợ từng phần (partial payment)
+
+#### Checklist hoàn thành
+- [ ] Form Bán hàng với nhiều items
+- [ ] Form Mua hàng với partial payment
+- [ ] Công nợ NCC được lưu đúng
+- [ ] Màn hình Trả nợ NCC
+- [ ] VAT được tính tự động theo TaxRate
+
+---
+
+### Task 7: Workers & Payroll + Thuế TNCN (6-8 giờ)
+
+#### Mục tiêu
+Quản lý nhân công thời vụ + Tính thuế TNCN
+
+#### Dependencies
+| Từ Task | Cần gì |
+|---------|--------|
+| Task 1 | `Worker`, `WorkLog` tables |
+| Task 5 | Transaction service (tạo phiếu chi lương) |
+
+#### Outputs cho các Tasks sau
+| Output | Sử dụng bởi |
+|--------|-------------|
+| Worker records | Task 8 (Dashboard - chi phí nhân công) |
+| WorkLog records | Task 8 (Reports - công nhật) |
+| PAYROLL transactions | Task 8 (Dashboard - chi phí) |
+| PIT calculation logic | Phase 3 Task 7 (PIT Calculator) |
+
+#### Logic Thuế TNCN (Quy tắc 2 triệu)
+```typescript
+function calculatePIT(grossAmount: number, hasContract: boolean, hasTaxCommitment: boolean) {
+  // Thợ thời vụ, mỗi lần chi >= 2,000,000đ
+  const PIT_THRESHOLD = 2_000_000;
+  
+  if (grossAmount < PIT_THRESHOLD) {
+    return { pitRate: 0, pitAmount: 0, netAmount: grossAmount };
+  }
+  
+  if (hasContract || hasTaxCommitment) {
+    // Có HĐ lao động hoặc Cam kết 02 → Không khấu trừ
+    return { pitRate: 0, pitAmount: 0, netAmount: grossAmount };
+  }
+  
+  // Khấu trừ 10% trên toàn bộ
+  const pitRate = 10;
+  const pitAmount = grossAmount * 0.1;
+  const netAmount = grossAmount - pitAmount;
+  
+  return { pitRate, pitAmount, netAmount };
+}
+```
+
+#### HTML Templates (Quan trọng)
+```
+📄 contract.html        // Mẫu 08 - Hợp đồng giao khoán
+📄 tax-commitment.html  // Mẫu 02/CK-TNCN - Cam kết thuế
+📄 payroll-sheet.html   // Mẫu 05 - Bảng thanh toán tiền công
+```
+
+#### Kết nối với Phase 5
+> [!NOTE]
+> Phase 5 sẽ mở rộng thành:
+> - Employee full management (BHXH, BHYT, BHTN)
+> - Payroll auto-calculate với 7 bậc thuế
+> - Monthly payroll với NET/GROSS
+
+#### Checklist hoàn thành
+- [ ] CRUD Workers hoạt động
+- [ ] Chấm công theo ngày (check all/uncheck)
+- [ ] Form Trả lương với tính thuế TNCN
+- [ ] Upload ảnh chứng từ (HĐ, Cam kết)
+- [ ] In/Export templates HTML
+- [ ] Tự động tạo Transaction type=PAYROLL
+
+---
+
+### Task 8: Dashboard & Reports (4-5 giờ)
+
+#### Mục tiêu
+Tổng quan tài chính + Báo cáo cơ bản
+
+#### Dependencies (Tất cả đổ về đây)
+| Từ Task | Cần gì |
+|---------|--------|
+| Task 5 | Thu chi (CASH_IN, CASH_OUT) |
+| Task 6 | Bán hàng (SALE), Mua hàng (PURCHASE), Công nợ |
+| Task 7 | Nhân công (PAYROLL) |
+
+#### Dashboard Widget Cards
+```
+┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+│ 💰 Thu      │ │ 💸 Chi      │ │ 📊 Lãi/Lỗ  │ │ 💳 Công nợ │
+│ 150,000,000 │ │ 80,000,000  │ │ +70,000,000│ │ -12,000,000│
+│ Tháng này   │ │ Tháng này   │ │ Tháng này  │ │ Phải trả   │
+└─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘
+```
+
+#### Charts
+- Revenue trend (6 tháng gần nhất)
+- Expense by category (pie chart)
+- Top 5 sản phẩm bán chạy
+
+#### Reports (Cơ bản)
+| Report | Mô tả |
+|--------|-------|
+| Thu chi theo kỳ | Filter by date range |
+| Công nợ NCC | Danh sách NCC + số dư |
+| Nhân công | Tổng hợp ngày công, tiền lương |
+
+#### Kết nối với Phase 2
+> [!IMPORTANT]
+> Phase 2 Task 6-7 sẽ mở rộng thành:
+> - 8 báo cáo kế toán chuẩn VN
+> - Export Excel
+> - Tờ khai VAT
+
+#### Checklist hoàn thành
+- [ ] Dashboard với 4 stat cards
+- [ ] Chart revenue trend
+- [ ] Quick actions (buttons)
+- [ ] Danh sách giao dịch gần nhất
+- [ ] Export Excel cơ bản
+
+---
+
+### Task 9: OCR Integration (4-5 giờ)
+
+#### Mục tiêu  
+Scan hóa đơn tự động điền form mua hàng
+
+#### Dependencies
+| Từ Task | Cần gì |
+|---------|--------|
+| Task 1 | `Invoice` table |
+| Task 6 | Form Mua hàng (để auto-fill) |
+
+#### Outputs
+- Extracted data từ ảnh hóa đơn
+- Invoice record lưu ảnh + kết quả OCR
+
+#### Flow
+```
+User chụp ảnh hóa đơn
+       ↓
+Upload to API /api/ocr
+       ↓
+Google Cloud Vision xử lý
+       ↓
+Extract: Tên NCC, MST, Items, Amounts, VAT
+       ↓
+Return JSON
+       ↓
+Auto-fill Form Mua hàng
+       ↓
+User confirm & save
+```
+
+#### Kết nối với Phase 2
+> [!NOTE]
+> Extracted MST sẽ được validate trong Phase 2 VAT Declaration
+
+#### Checklist hoàn thành
+- [ ] Upload ảnh hoạt động
+- [ ] OCR extract được thông tin cơ bản
+- [ ] Auto-fill form Mua hàng
+- [ ] Lưu Invoice record với ảnh gốc
+
+---
+
+## 🔗 KẾT NỐI PHASE 1 → PHASE 2
+
+### Data sẽ được sử dụng trong Phase 2
+
+| Phase 1 Entity | Phase 2 Sử dụng |
+|----------------|-----------------|
+| Transaction | Tạo StockMovement tự động |
+| Product | Tính giá vốn bình quân |
+| Partner | Migrate sang AR/AP transactions |
+| Partner.balance_ar | Seed dữ liệu AR |
+| Partner.balance_ap | Seed dữ liệu AP |
+| Transaction.vat_amount | Tờ khai VAT |
+| TaxRate từ seed | VAT Declaration |
+
+### APIs sẽ được mở rộng
+
+| Phase 1 API | Phase 2 Mở rộng |
+|-------------|-----------------|
+| POST /api/transactions | Thêm auto stock movement |
+| GET /api/transactions | Thêm filter by stock_status |
+| GET /api/partners | Thêm AR/AP summary |
+| GET /api/products | Thêm stock info |
+
+### New Tables (Phase 2)
+
+```prisma
+// Sẽ thêm trong Phase 2 Task 1
+model Stock { ... }
+model StockMovement { ... }
+model ARTransaction { ... }
+model APTransaction { ... }
+model VATDeclaration { ... }
+model UserSession { ... }
+model AuditLog { ... }
+```
+
+---
+
+## ✅ VERIFICATION PLAN
+
+### Automated Tests (Mỗi Task)
+```bash
+# Unit tests
+npm run test
+
+# Type check
+npm run build
+
+# Lint
+npm run lint
+```
+
+### Manual Testing Checklist
+
+#### Task 1-2: Auth Flow
+1. Mở http://localhost:3000
+2. Click "Đăng ký"
+3. Nhập email, password, chọn "Nông trại"
+4. Submit → Redirect to Dashboard
+5. Logout → Login lại
+
+#### Task 3-4: Master Data
+1. Vào Cài đặt → Thông tin Farm
+2. Vào Cài đặt → Sản phẩm → Thêm 3 SP
+3. Vào Cài đặt → Đối tác → Thêm 2 KH + 2 NCC
+
+#### Task 5: Thu Chi
+1. Click "Thu tiền" → Nhập 1 triệu → Lưu
+2. Click "Chi tiền" → Nhập 500k → Lưu
+3. Check danh sách giao dịch
+
+#### Task 6: Bán/Mua
+1. Bán hàng → Chọn 2 SP → Lưu
+2. Mua hàng → Chọn NCC → Thanh toán 50% → Check công nợ
+
+#### Task 7: Nhân công
+1. Thêm 2 thợ
+2. Chấm công 3 ngày
+3. Trả lương 2.5 triệu → Check thuế TNCN
+
+#### Task 8: Dashboard
+1. Xem Dashboard → Check các số liệu khớp
+
+---
+
+## 📋 KẾT LUẬN
+
+Phase 1 tạo nền tảng vững chắc cho toàn bộ hệ thống LABA ERP:
+
+1. **Database schema** đã tính trước các trường cho Phase 2+
+2. **Auth system** ready cho việc mở rộng Security ở Phase 4
+3. **Transaction service** sẽ được extend, không cần viết lại
+4. **Workers module** là tiền đề cho Payroll Auto ở Phase 5
+5. **Dynamic labels** đảm bảo UX nhất quán giữa FARM và F&B
+
+> [!TIP]
+> Khi làm Phase 1, luôn nghĩ đến việc dữ liệu sẽ được dùng như thế nào ở các Phase sau.
+
+---
+
+**Phiên bản:** 1.0  
+**Ngày tạo:** 17/12/2024  
+**Tác giả:** LABA Team
+
+---
+
+# 📋 PHASE 2: INVENTORY + AR/AP + REPORTS
+
+## 🎯 Tổng Quan Phase 2
+
+**Mục tiêu:** Mở rộng ERP thành hệ thống kế toán tương đối đầy đủ  
+**Thời gian:** 64-81 giờ (~10 tuần)  
+**Tiền đề:** Phase 1 hoàn thành 100%
+
+---
+
+## 📊 SƠ ĐỒ KẾT NỐI PHASE 2
+
+```
+               ┌─────────────────────────────────────────────────────────────┐
+               │                     PHASE 1 OUTPUTS                         │
+               │  Transaction, Product, Partner, Worker, Account (seed)      │
+               └──────────────────────────┬──────────────────────────────────┘
+                                          │
+                                          ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              PHASE 2: TASK FLOW                                  │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│    ┌────────────────────────────────────────────────────────────────────┐       │
+│    │ TASK 1: Database Schema Phase 2                                    │       │
+│    │ ═══════════════════════════════                                    │       │
+│    │ New: Stock, StockMovement, ARTransaction, APTransaction,           │       │
+│    │      VATDeclaration, UserSession, AuditLog                         │       │
+│    └────────────────────────┬───────────────────────────────────────────┘       │
+│                             │                                                    │
+│           ┌─────────────────┼─────────────────┐                                 │
+│           ▼                 ▼                 ▼                                 │
+│   ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                          │
+│   │ TASK 2       │  │ TASK 4       │  │ TASK 5       │                          │
+│   │ Inventory    │  │ AR Module    │  │ AP Module    │                          │
+│   │ Management   │  │ (Phải thu)   │  │ (Phải trả)   │                          │
+│   │              │  │              │  │              │                          │
+│   │ stockIn()    │  │ Từ P1 SALE   │  │ Từ P1 PURCH  │                          │
+│   │ stockOut()   │  │ Migrate AR   │  │ Migrate AP   │                          │
+│   │ avg cost     │  │              │  │              │                          │
+│   └──────┬───────┘  └──────┬───────┘  └──────┬───────┘                          │
+│          │                 │                 │                                   │
+│          ▼                 ▼                 ▼                                   │
+│   ┌──────────────┐  ┌──────────────────────────────────┐                        │
+│   │ TASK 3       │  │ TASK 6: Accounting Reports       │                        │
+│   │ Stock Report │  │ ══════════════════════════       │                        │
+│   │ & Alerts     │  │ 8 báo cáo kế toán chuẩn VN:      │                        │
+│   │              │  │ - Sổ quỹ (TK 111, 112)           │                        │
+│   │ Tồn kho      │  │ - Bảng kê HĐ mua/bán             │                        │
+│   │ thấp → Alert │  │ - Sổ chi tiết 131, 331           │                        │
+│   │              │  │ - Báo cáo NXT                    │                        │
+│   └──────────────┘  │ - Bảng CĐPS                      │                        │
+│                     └────────────────┬─────────────────┘                        │
+│                                      │                                          │
+│                                      ▼                                          │
+│                     ┌────────────────────────────────────┐                      │
+│                     │ TASK 7: Export Excel               │                      │
+│                     │ ═════════════════                  │                      │
+│                     │ ExcelJS + Templates               │                      │
+│                     └─────────────────┬──────────────────┘                      │
+│                                       │                                         │
+│                       ┌───────────────┴───────────────┐                         │
+│                       ▼                               ▼                         │
+│               ┌────────────────┐              ┌────────────────┐                │
+│               │ TASK 8         │              │ TASK 9         │                │
+│               │ VAT Declar.    │              │ Tax Package    │                │
+│               │                │              │ Export ZIP     │                │
+│               │ Input VAT      │              │                │                │
+│               │ Output VAT     │              │ All reports +  │                │
+│               │ XML TCT        │              │ Images → ZIP   │                │
+│               └────────────────┘              └────────────────┘                │
+│                                       │                                         │
+│                                       ▼                                         │
+│               ┌─────────────────────────────────────────────────┐               │
+│               │ TASK 10: Security Enhancement                    │               │
+│               │ ═════════════════════════════                    │               │
+│               │ Session Management | Audit Log | Rate Limiting  │               │
+│               └─────────────────────────────────────────────────┘               │
+│                                                                                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🔗 KẾT NỐI PHASE 1 → PHASE 2
+
+| Phase 1 (Input) | Phase 2 Task | Xử lý |
+|-----------------|--------------|-------|
+| `Transaction.type=SALE` | Task 4 AR | Migrate sang ARTransaction |
+| `Transaction.type=PURCHASE` | Task 5 AP | Migrate sang APTransaction |
+| `Partner.balance_ar` | Task 4 | Import làm opening balance |
+| `Partner.balance_ap` | Task 5 | Import làm opening balance |
+| `Product` | Task 2 Inventory | Tạo Stock record cho mỗi SP |
+| `Transaction + Items` | Task 2 | Tự động tạo StockMovement |
+| `Transaction.vat_amount` | Task 8 | Tính Input/Output VAT |
+| `Account` (seed) | Task 6 Reports | Query theo TK kế toán |
+
+---
+
+## 📝 CHI TIẾT TASKS VỚI CONNECTIONS
+
+### Task 1: Database Schema Phase 2 (4-5h)
+**Input:** P1 schema  
+**Output:** New tables cho Stock, AR/AP, VAT, Security
+
+### Task 2: Inventory Management (8-10h)
+**Input:** P1 Products, P2 Task 1 Schema  
+**Output:** Stock with Moving Average Cost  
+**Logic:** Khi P1 Transaction.type = SALE/PURCHASE → Auto create StockMovement
+
+### Task 3: Stock Reports (4-5h)
+**Input:** Task 2 Stock data  
+**Output:** Báo cáo NXT, Thẻ kho, Cảnh báo tồn thấp
+
+### Task 4: AR Module (6-8h)
+**Input:** P1 Partner.balance_ar, P1 SALE transactions  
+**Output:** ARTransaction records, Thu tiền allocation
+
+### Task 5: AP Module (6-8h)
+**Input:** P1 Partner.balance_ap, P1 PURCHASE transactions  
+**Output:** APTransaction records, Trả tiền allocation
+
+### Task 6: Accounting Reports (10-12h)
+**Input:** Task 2,3,4,5 data + P1 Transaction  
+**Output:** 8 báo cáo chuẩn VN
+
+### Task 7: Export Excel (4-5h)
+**Input:** Task 6 reports  
+**Output:** XLSX files với template đẹp
+
+### Task 8: VAT Declaration (8-10h)
+**Input:** P1 Transaction.vat_amount + Partner.tax_code  
+**Output:** Tờ khai 01/GTGT XML
+
+### Task 9: Tax Package Export (6-8h)
+**Input:** All reports từ Task 6-8 + Invoice images  
+**Output:** 1 file ZIP đầy đủ hồ sơ thuế
+
+### Task 10: Security (8-10h)
+**Input:** P1 Auth system  
+**Output:** Session management, Audit logging
+
+---
+
+## 🔗 KẾT NỐI PHASE 2 → PHASE 3
+
+| Phase 2 Output | Phase 3 Sử dụng |
+|----------------|-----------------|
+| VAT Input/Output | Task 3 VAT Validation |
+| Transaction data | Task 4 CIT Calculation |
+| Security base | Task 8 Tax Compliance |
+
+---
+
+# 📋 PHASE 3: TAX ENGINE + BCTC + TSCĐ
+
+## 🎯 Tổng Quan Phase 3
+
+**Mục tiêu:** Xây dựng Tax Engine thông minh + Báo cáo tài chính  
+**Thời gian:** 96-120 giờ (~8 tuần)  
+**Tiền đề:** Phase 1 + Phase 2 hoàn thành
+
+---
+
+## 📊 SƠ ĐỒ KẾT NỐI PHASE 3
+
+```
+               ┌─────────────────────────────────────────────────────────────┐
+               │                     PHASE 2 OUTPUTS                         │
+               │  VAT data, Stock, AR/AP, Reports, Security base             │
+               └──────────────────────────┬──────────────────────────────────┘
+                                          │
+                                          ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              PHASE 3: TAX ENGINE                                 │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│    ┌────────────────────────────────────────────────────────────────────┐       │
+│    │ TASK 1: Database Schema Phase 3                                    │       │
+│    │ ═══════════════════════════════                                    │       │
+│    │ New: tax_rules, cit_calculations, pit_calculations,                │       │
+│    │      assets, depreciation_schedules, tax_schedules                 │       │
+│    └────────────────────────┬───────────────────────────────────────────┘       │
+│                             │                                                    │
+│                             ▼                                                    │
+│    ┌────────────────────────────────────────────────────────────────────┐       │
+│    │ TASK 2: Tax Rules Engine Core                                      │       │
+│    │ ═════════════════════════════                                      │       │
+│    │ Rule evaluator | Condition parser | Action executor                │       │
+│    │ Format: { condition: {...}, action: "ADD_BACK", value: 100% }      │       │
+│    └────────────────────────┬───────────────────────────────────────────┘       │
+│                             │                                                    │
+│    ┌────────────────────────┼────────────────────────────────────────┐          │
+│    ▼                        ▼                                        ▼          │
+│ ┌────────────┐     ┌──────────────────┐    ┌──────────────────┐                 │
+│ │ TASK 3     │     │ TASK 4           │    │ TASK 7           │                 │
+│ │ VAT Valid  │     │ CIT Calculation  │    │ PIT Calculation  │                 │
+│ │            │     │                  │    │                  │                 │
+│ │ TT219/TT96 │     │ Revenue - Expense│    │ 7 bậc thuế suất  │                 │
+│ │ Check      │     │ + Add-backs      │    │ Giảm trừ 11tr    │                 │
+│ └─────┬──────┘     │ = Taxable Income │    │ NPT 4.4tr        │                 │
+│       │            └────────┬─────────┘    └────────┬─────────┘                 │
+│       │                     │                       │                           │
+│       │            ┌────────┴─────────┐             │                           │
+│       │            ▼                  ▼             │                           │
+│       │     ┌────────────┐    ┌────────────┐        │                           │
+│       │     │ TASK 5     │    │ TASK 6     │        │                           │
+│       │     │ CIT XML    │    │ CIT UI     │        │                           │
+│       │     │ 03/TNDN    │    │            │        │                           │
+│       │     └────────────┘    └────────────┘        │                           │
+│       │                                             │                           │
+│       └─────────────────┬───────────────────────────┘                           │
+│                         ▼                                                        │
+│    ┌────────────────────────────────────────────────────────────────────┐       │
+│    │ TASK 8: Tax Compliance Dashboard                                    │       │
+│    │ ════════════════════════════════                                    │       │
+│    │ Tổng hợp VAT + CIT + PIT | Lịch nộp thuế | Cảnh báo hạn            │       │
+│    └────────────────────────┬───────────────────────────────────────────┘       │
+│                             │                                                    │
+│    ┌────────────────────────┴────────────────────────────────────────┐          │
+│    ▼                                                                 ▼          │
+│ ┌──────────────────┐                                    ┌──────────────────┐    │
+│ │ TASK 9           │                                    │ TASK 10          │    │
+│ │ Hybrid Tax Sync  │                                    │ Fixed Assets     │    │
+│ │                  │                                    │                  │    │
+│ │ Weekly cron      │                                    │ TSCĐ Management  │    │
+│ │ Update tax rules │                                    │ Monthly deprec.  │    │
+│ │ from master JSON │                                    │ Auto GL posting  │    │
+│ └──────────────────┘                                    └────────┬─────────┘    │
+│                                                                  │              │
+│                                                                  ▼              │
+│                                           ┌──────────────────────────────────┐  │
+│                                           │ TASK 11: Financial Statements    │  │
+│                                           │ ════════════════════════════     │  │
+│                                           │ Balance Sheet | Income Statement │  │
+│                                           │ Cash Flow | Thuyết minh BCTC     │  │
+│                                           └────────────────┬─────────────────┘  │
+│                                                            │                    │
+│    ┌───────────────────────────────────────────────────────┘                    │
+│    ▼                                                                            │
+│ ┌─────────────────────────────────────────────────────────────────────────┐     │
+│ │ TASK 12: Cron Jobs & Integration Testing                                │     │
+│ │ ══════════════════════════════════════                                  │     │
+│ │ Monthly depreciation | Daily tax reminders | Weekly tax sync | E2E test│     │
+│ └─────────────────────────────────────────────────────────────────────────┘     │
+│                                                                                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🔗 KẾT NỐI PHASE 2 → PHASE 3
+
+| Phase 2 Output | Phase 3 Task | Xử lý |
+|----------------|--------------|-------|
+| `VATDeclaration` data | Task 3 | Validate theo TT219/TT96 |
+| `Transaction + vat` | Task 3, 4 | Input cho tax calculation |
+| `Stock.avg_cost` | Task 4 CIT | Tính COGS cho chi phí |
+| `ARTransaction` | Task 4 | Doanh thu cho CIT |
+| `APTransaction` | Task 4 | Chi phí cho CIT |
+| `Partner.tax_code` | Task 3 | Validate MST cho khấu trừ |
+
+---
+
+## 🔗 KẾT NỐI PHASE 3 → PHASE 4
+
+| Phase 3 Output | Phase 4 Sử dụng |
+|----------------|-----------------|
+| Tax Rules Engine | Task 10 Production Auth |
+| Financial Statements | Task 7,8,9 Reports |
+| Audit logging | Task 11 RBAC |
+| Cron job infrastructure | Task 13 Monitoring |
+
+---
+
+# 📋 PHASE 4: PRODUCTION READY
+
+## 🎯 Tổng Quan Phase 4
+
+**Mục tiêu:** Production-ready với AR/AP đầy đủ + Infrastructure  
+**Thời gian:** 136-168 giờ (~8 tuần)  
+**Tiền đề:** Phase 1, 2, 3 hoàn thành
+
+---
+
+## 📊 SƠ ĐỒ KẾT NỐI PHASE 4
+
+```
+               ┌─────────────────────────────────────────────────────────────┐
+               │                     PHASE 3 OUTPUTS                         │
+               │  Tax Engine, BCTC, Assets, Cron Jobs, Audit base            │
+               └──────────────────────────┬──────────────────────────────────┘
+                                          │
+                                          ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         PHASE 4: PRODUCTION READY                                │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│  ┌─────────────────────────────────────────────────────────────────────────┐    │
+│  │ TASK 1: Database Schema Phase 4                                         │    │
+│  │ ═══════════════════════════════                                         │    │
+│  │ New: ar_invoices, ar_payments, ar_allocations,                          │    │
+│  │      ap_invoices, ap_payments, credit_memos, failed_logins              │    │
+│  └─────────────────────────────────┬───────────────────────────────────────┘    │
+│                                    │                                            │
+│          ┌─────────────────────────┼─────────────────────────┐                  │
+│          ▼                         │                         ▼                  │
+│   ┌────────────────────────────────┴─────────────────────────────────────┐      │
+│   │               SPRINT 4.1: AR MODULE                                   │      │
+│   │  ┌──────────┐ ┌────────────┐ ┌──────────────┐ ┌──────────────────┐   │      │
+│   │  │ TASK 2   │ │ TASK 3     │ │ TASK 4       │ │ TASK 5           │   │      │
+│   │  │ AR CRUD  │→│ AR Posting │→│ AR Payments  │→│ AR Aging Report  │   │      │
+│   │  │ Invoice  │ │ → GL       │ │ Allocation   │ │ 30/60/90/120 day │   │      │
+│   │  └──────────┘ └────────────┘ └──────────────┘ └──────────────────┘   │      │
+│   └──────────────────────────────────────────────────────────────────────┘      │
+│                                    │                                            │
+│                                    ▼                                            │
+│   ┌──────────────────────────────────────────────────────────────────────┐      │
+│   │               SPRINT 4.2: AP + REPORTS                                │      │
+│   │  ┌──────────────────┐  ┌─────────┐ ┌─────────┐ ┌─────────────────┐   │      │
+│   │  │ TASK 6           │  │ TASK 7  │ │ TASK 8  │ │ TASK 9          │   │      │
+│   │  │ AP Invoice+Pay   │  │ Balance │ │ P&L     │ │ Trial Balance   │   │      │
+│   │  │ Full module      │  │ Sheet   │ │ TT200   │ │ General Ledger  │   │      │
+│   │  └──────────────────┘  └─────────┘ └─────────┘ └─────────────────┘   │      │
+│   └──────────────────────────────────────────────────────────────────────┘      │
+│                                    │                                            │
+│                                    ▼                                            │
+│   ┌──────────────────────────────────────────────────────────────────────┐      │
+│   │               SPRINT 4.3: AUTH + INFRASTRUCTURE                       │      │
+│   │  ┌──────────────────┐  ┌──────────────────┐  ┌───────────────────┐   │      │
+│   │  │ TASK 10          │  │ TASK 11          │  │ TASK 12           │   │      │
+│   │  │ Production Auth  │→ │ RBAC Multi-tenant│→ │ AWS Infrastructure│   │      │
+│   │  │ JWT Refresh      │  │ Permissions      │  │ VPC/RDS/ECS/WAF   │   │      │
+│   │  │ Brute Force Prot │  │ Tenant Switching │  │ Multi-region      │   │      │
+│   │  └──────────────────┘  └──────────────────┘  └───────────────────┘   │      │
+│   │                                                      │               │      │
+│   │                        ┌─────────────────────────────┘               │      │
+│   │                        ▼                                             │      │
+│   │               ┌───────────────────┐                                  │      │
+│   │               │ TASK 13           │                                  │      │
+│   │               │ CI/CD Monitoring  │                                  │      │
+│   │               │ GitHub Actions    │                                  │      │
+│   │               │ CloudWatch/Sentry │                                  │      │
+│   │               └───────────────────┘                                  │      │
+│   └──────────────────────────────────────────────────────────────────────┘      │
+│                                    │                                            │
+│                                    ▼                                            │
+│   ┌──────────────────────────────────────────────────────────────────────┐      │
+│   │               SPRINT 4.4: TESTING & UAT                               │      │
+│   │               ┌──────────────────────────────────────┐               │      │
+│   │               │ TASK 14: E2E Tests + UAT             │               │      │
+│   │               │ ════════════════════════             │               │      │
+│   │               │ Playwright | k6 load | OWASP ZAP    │               │      │
+│   │               │ Parallel run with 3 pilot farms     │               │      │
+│   │               └──────────────────────────────────────┘               │      │
+│   └──────────────────────────────────────────────────────────────────────┘      │
+│                                                                                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🔗 KẾT NỐI PHASE 3 → PHASE 4
+
+| Phase 3 Output | Phase 4 Task | Xử lý |
+|----------------|--------------|-------|
+| `cit_calculations` | Task 7,8 | Data cho Balance Sheet, P&L |
+| `assets + depreciation` | Task 7 | Tài sản dài hạn |
+| `tax_schedules` | Task 10 | Integrate vào auth |
+| Audit logging | Task 11 RBAC | Extend permission audit |
+| Cron infrastructure | Task 13 | Production cron setup |
+
+---
+
+## 🔗 KẾT NỐI PHASE 4 → PHASE 5
+
+| Phase 4 Output | Phase 5 Sử dụng |
+|----------------|-----------------|
+| RBAC system | Task 2-4 Payroll permissions |
+| AWS Infrastructure | All tasks |
+| CI/CD pipeline | Testing & deployment |
+| Production Auth | Employee management |
+
+---
+
+# 📋 PHASE 5: ADVANCED AUTO-BACKEND
+
+## 🎯 Tổng Quan Phase 5
+
+**Mục tiêu:** Tự động hóa - User nhập ít, hệ thống tự tính  
+**Thời gian:** 96-120 giờ (~6 tuần)  
+**Triết lý:** TỰ ĐỘNG 100%
+
+---
+
+## 📊 SƠ ĐỒ KẾT NỐI PHASE 5
+
+```
+               ┌─────────────────────────────────────────────────────────────┐
+               │                     PHASE 4 OUTPUTS                         │
+               │  Production Auth, RBAC, AR/AP Full, Infrastructure, CI/CD   │
+               └──────────────────────────┬──────────────────────────────────┘
+                                          │
+                                          ▼
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         PHASE 5: AUTO-BACKEND                                    │
+├─────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                  │
+│    ┌────────────────────────────────────────────────────────────────────┐       │
+│    │ TASK 1: Database Schema Phase 5                                    │       │
+│    │ ═══════════════════════════════                                    │       │
+│    │ New: employees, payrolls, tools, tool_allocations,                 │       │
+│    │      budgets, budget_items, product_costs, notifications           │       │
+│    └────────────────────────┬───────────────────────────────────────────┘       │
+│                             │                                                    │
+│    ┌────────────────────────┴────────────────────────────────────────┐          │
+│    ▼                                                                 ▼          │
+│   ┌──────────────────────────────────────────────────────────────────────┐      │
+│   │               SPRINT 5.1: PAYROLL MODULE                              │      │
+│   │                                                                       │      │
+│   │  ┌──────────────┐     ┌───────────────────┐     ┌────────────────┐   │      │
+│   │  │ TASK 2       │     │ TASK 3            │     │ TASK 4         │   │      │
+│   │  │ Employee     │────▶│ Payroll           │────▶│ Payroll UI     │   │      │
+│   │  │ CRUD         │     │ Auto-Calculate    │     │ & Reports      │   │      │
+│   │  │              │     │                   │     │                │   │      │
+│   │  │ NPT, BHXH    │     │ GROSS → NET       │     │ Phiếu lương    │   │      │
+│   │  │ Contract     │     │ Auto calc:        │     │ Tờ khai TNCN   │   │      │
+│   │  │              │     │ • BHXH 8%         │     │ Export Excel   │   │      │
+│   │  │              │     │ • BHYT 1.5%       │     │                │   │      │
+│   │  │              │     │ • BHTN 1%         │     │                │   │      │
+│   │  │              │     │ • PIT 7 bậc       │     │                │   │      │
+│   │  └──────────────┘     └───────────────────┘     └────────────────┘   │      │
+│   └──────────────────────────────────────────────────────────────────────┘      │
+│                             │                                                    │
+│    ┌────────────────────────┴────────────────────────────────────────┐          │
+│    ▼                                                                 ▼          │
+│   ┌──────────────────────────────────────────────────────────────────────┐      │
+│   │               SPRINT 5.2: CCDC + BUDGET                               │      │
+│   │                                                                       │      │
+│   │  ┌───────────────────┐  ┌───────────────────┐  ┌────────────────┐    │      │
+│   │  │ TASK 5            │  │ TASK 6            │  │ TASK 7         │    │      │
+│   │  │ CCDC Auto-Alloc   │  │ Budget CRUD       │  │ Push Notif.    │    │      │
+│   │  │                   │  │ & Monitoring      │  │                │    │      │
+│   │  │ Input: 5tr/12th   │  │                   │  │ FCM/OneSignal  │    │      │
+│   │  │ Cron monthly:     │  │ Limit per group   │  │                │    │      │
+│   │  │ → Auto GL entry   │  │ Real-time track   │  │ >80% → ⚠️     │    │      │
+│   │  │ → Update balance  │  │ Alert thresholds  │  │ >100% → 🚨    │    │      │
+│   │  └───────────────────┘  └───────────────────┘  └────────────────┘    │      │
+│   │                                             │                        │      │
+│   │                        ┌────────────────────┘                        │      │
+│   │                        ▼                                             │      │
+│   │               ┌───────────────────┐                                  │      │
+│   │               │ TASK 8            │                                  │      │
+│   │               │ Budget Dashboard  │                                  │      │
+│   │               │ Planned vs Actual │                                  │      │
+│   │               └───────────────────┘                                  │      │
+│   └──────────────────────────────────────────────────────────────────────┘      │
+│                             │                                                    │
+│    ┌────────────────────────┴────────────────────────────────────────┐          │
+│    ▼                                                                 ▼          │
+│   ┌──────────────────────────────────────────────────────────────────────┐      │
+│   │               SPRINT 5.3: COSTING + ANALYTICS                         │      │
+│   │                                                                       │      │
+│   │  ┌───────────────────┐  ┌───────────────────┐  ┌────────────────┐    │      │
+│   │  │ TASK 9            │  │ TASK 10           │  │ TASK 11        │    │      │
+│   │  │ Cost Aggregation  │  │ Product Costing   │  │ Analytics      │    │      │
+│   │  │                   │  │ UI                │  │ Dashboard      │    │      │
+│   │  │ Group by product: │  │                   │  │                │    │      │
+│   │  │ • Material cost   │  │ Cost breakdown    │  │ 6-month trend  │    │      │
+│   │  │ • Labor cost      │  │ Profit margin     │  │ Top products   │    │      │
+│   │  │ • Overhead        │  │ Loss warning ⚠️   │  │ AI insights    │    │      │
+│   │  └───────────────────┘  └───────────────────┘  └────────────────┘    │      │
+│   │                                                      │               │      │
+│   │                        ┌─────────────────────────────┘               │      │
+│   │                        ▼                                             │      │
+│   │               ┌───────────────────────────────────┐                  │      │
+│   │               │ TASK 12: Onboarding & Testing     │                  │      │
+│   │               │ ═════════════════════════════     │                  │      │
+│   │               │ Tour hướng dẫn | E2E | Load test │                  │      │
+│   │               └───────────────────────────────────┘                  │      │
+│   └──────────────────────────────────────────────────────────────────────┘      │
+│                                                                                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 🔗 KẾT NỐI PHASE 4 → PHASE 5
+
+| Phase 4 Output | Phase 5 Task | Xử lý |
+|----------------|--------------|-------|
+| RBAC permissions | Task 2-4 | Employee role permissions |
+| GL Transaction service | Task 3, 5 | Auto posting payroll, CCDC |
+| Production cron | Task 5, 9 | Monthly CCDC allocation, Cost aggregation |
+| Push infra | Task 7 | Budget alerts |
+| CI/CD | Task 12 | Testing pipeline |
+
+---
+
+## 🔗 KẾT NỐI CÁC PHASES - TỔNG HỢP
+
+```
+┌────────────────────────────────────────────────────────────────────────────────┐
+│                        LABA ERP - FULL PHASE CONNECTION                         │
+├────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                 │
+│  PHASE 1: CORE ERP MINI (9 Tasks)                                              │
+│  ═══════════════════════════════                                               │
+│  🏗️ Foundation: Schema, Auth, CRUD, Transaction, Workers, Dashboard            │
+│           │                                                                     │
+│           │ Outputs: Transaction service, Partner balances, Workers,           │
+│           │          Account chart, Tax rates, Product catalog                 │
+│           ▼                                                                     │
+│  PHASE 2: INVENTORY + AR/AP (10 Tasks)                                         │
+│  ════════════════════════════════════                                          │
+│  📦 Inventory: Stock, Moving Avg Cost, Reports                                 │
+│  💳 AR/AP: Migrate P1 balances, Payment tracking                               │
+│  📊 Reports: 8 VN accounting reports, VAT declaration                          │
+│           │                                                                     │
+│           │ Outputs: Stock system, VAT data, AR/AP transactions,               │
+│           │          Report templates, Security base                           │
+│           ▼                                                                     │
+│  PHASE 3: TAX ENGINE + BCTC (12 Tasks)                                         │
+│  ════════════════════════════════════                                          │
+│  🧮 Tax Engine: Rules, VAT validation, CIT, PIT calculations                   │
+│  📋 BCTC: Balance Sheet, P&L, Cash Flow                                        │
+│  🏭 Assets: Fixed assets, Auto depreciation                                    │
+│           │                                                                     │
+│           │ Outputs: Tax calculation services, Financial statements,           │
+│           │          Cron job infrastructure, Compliance dashboard             │
+│           ▼                                                                     │
+│  PHASE 4: PRODUCTION READY (14 Tasks)                                          │
+│  ════════════════════════════════════                                          │
+│  📄 AR/AP Full: Invoice → Payment → Allocation → Aging                         │
+│  🔒 Auth: Production auth, RBAC, Multi-tenant                                  │
+│  ☁️ Infra: AWS VPC/RDS/ECS, CI/CD, Monitoring                                  │
+│           │                                                                     │
+│           │ Outputs: Production infrastructure, Full AR/AP,                    │
+│           │          RBAC system, Test coverage >80%                           │
+│           ▼                                                                     │
+│  PHASE 5: AUTO-BACKEND (12 Tasks)                                              │
+│  ════════════════════════════════                                              │
+│  💰 Payroll Auto: BHXH/BHYT/BHTN/PIT auto from GROSS                           │
+│  🔧 CCDC Auto: Monthly allocation, auto GL posting                             │
+│  📊 Budget: Real-time tracking, push alerts                                    │
+│  📈 Analytics: Product costing, profit analysis, AI insights                   │
+│                                                                                 │
+└────────────────────────────────────────────────────────────────────────────────┘
+
+TOTAL: 57 TASKS across 5 PHASES
+TIMELINE: ~34 weeks (8.5 months)
+```
+
+---
+
+## ✅ VERIFICATION PLAN (ALL PHASES)
+
+### Phase-level Verification
+
+| Phase | Key Verification |
+|-------|------------------|
+| Phase 1 | Basic flows work, data saved correctly |
+| Phase 2 | Stock balances correct, AR/AP matches |
+| Phase 3 | Tax calculations = manual calc, XML validates |
+| Phase 4 | Security audit pass, 1000 concurrent users |
+| Phase 5 | Auto calculations = manual, <5s response |
+
+### Integration Points to Test
+
+1. **P1→P2:** Transaction creates StockMovement automatically
+2. **P2→P3:** VAT data flows into VAT Validation
+3. **P3→P4:** Tax calculations appear in Financial Reports
+4. **P4→P5:** RBAC controls Payroll access
+
+---
+
+**Phiên bản:** 2.0 (All Phases)  
+**Ngày tạo:** 17/12/2024  
+**Tác giả:** LABA Team

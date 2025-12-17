@@ -384,17 +384,17 @@ export async function getVATIssuesReport(
         // Build validation input from transaction
         const validationInput: VATValidationInput = {
             transaction_id: trans.id,
-            invoice_number: trans.invoice_number || undefined,
+            invoice_number: (trans as any).invoice_number ?? undefined,
             invoice_date: trans.trans_date,
-            supplier_tax_code: trans.partner?.tax_code || undefined,
-            supplier_name: trans.partner?.name || trans.partner_name || undefined,
-            supplier_status: trans.partner?.supplier_status || undefined,
+            supplier_tax_code: trans.partner?.tax_code ?? undefined,
+            supplier_name: trans.partner?.name ?? trans.partner_name ?? undefined,
+            supplier_status: (trans.partner?.supplier_status ?? undefined) as any,
             goods_value: Number(trans.subtotal || trans.amount),
             vat_rate: vatAmount > 0 ? (vatAmount / Number(trans.subtotal || trans.amount)) * 100 : 0,
             vat_amount: vatAmount,
             total_amount: Number(trans.total_amount),
             payment_method: trans.payment_method,
-            usage_purpose: trans.usage_purpose,
+            usage_purpose: (trans.usage_purpose ?? undefined) as any,
             skip_mst_lookup: true, // Skip for report performance
         };
 
@@ -410,7 +410,7 @@ export async function getVATIssuesReport(
 
             issues.push({
                 transaction_id: trans.id,
-                invoice_number: trans.invoice_number || trans.code,
+                invoice_number: (trans as any).invoice_number || trans.code,
                 invoice_date: trans.trans_date.toISOString().split('T')[0],
                 supplier_name: trans.partner?.name || trans.partner_name || 'N/A',
                 supplier_tax_code: trans.partner?.tax_code || undefined,
@@ -431,7 +431,7 @@ export async function getVATIssuesReport(
 
             issues.push({
                 transaction_id: trans.id,
-                invoice_number: trans.invoice_number || trans.code,
+                invoice_number: (trans as any).invoice_number || trans.code,
                 invoice_date: trans.trans_date.toISOString().split('T')[0],
                 supplier_name: trans.partner?.name || trans.partner_name || 'N/A',
                 supplier_tax_code: trans.partner?.tax_code || undefined,
@@ -450,7 +450,7 @@ export async function getVATIssuesReport(
 
             issues.push({
                 transaction_id: trans.id,
-                invoice_number: trans.invoice_number || trans.code,
+                invoice_number: (trans as any).invoice_number || trans.code,
                 invoice_date: trans.trans_date.toISOString().split('T')[0],
                 supplier_name: trans.partner?.name || trans.partner_name || 'N/A',
                 supplier_tax_code: trans.partner?.tax_code || undefined,

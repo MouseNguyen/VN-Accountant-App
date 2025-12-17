@@ -100,12 +100,12 @@ export default function PITCalculationPage() {
     // Batch calculate mutation
     const calculateMutation = useMutation({
         mutationFn: async () => {
-            const res = await apiClient.post('/tax/pit/calculate', { period });
+            const res = await apiClient.post<{ data: PITBatchResult }>('/tax/pit/calculate', { period });
             return res;
         },
         onSuccess: (res) => {
             queryClient.invalidateQueries({ queryKey: ['pit-calculations', period] });
-            const count = res.data?.data?.total_employees || 0;
+            const count = (res.data as any)?.total_employees || 0;
             toast.success(`Đã tính thuế TNCN cho ${count} nhân viên!`);
         },
         onError: (err: Error & { response?: { data?: { error?: string } } }) => {

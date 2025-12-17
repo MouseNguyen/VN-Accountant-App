@@ -29,9 +29,9 @@ const issues: IntegrityIssue[] = [];
 
 function addIssue(issue: IntegrityIssue) {
     issues.push(issue);
-    const color = issue.severity === 'CRITICAL' ? RED : 
-                  issue.severity === 'HIGH' ? YELLOW : 
-                  issue.severity === 'MEDIUM' ? BLUE : RESET;
+    const color = issue.severity === 'CRITICAL' ? RED :
+        issue.severity === 'HIGH' ? YELLOW :
+            issue.severity === 'MEDIUM' ? BLUE : RESET;
     console.log(`${color}[${issue.severity}]${RESET} ${issue.category}: ${issue.description}`);
 }
 
@@ -65,7 +65,7 @@ async function checkPartnerBalanceSync() {
 
         for (const t of partner.transactions) {
             const outstanding = Number(t.total_amount) - Number(t.paid_amount);
-            
+
             // SALE/INCOME → Customer owes us (positive)
             // PURCHASE/EXPENSE → We owe vendor (negative for vendor, but stored as positive)
             if (['SALE', 'INCOME'].includes(t.trans_type)) {
@@ -137,7 +137,7 @@ async function checkTransactionARAPSync() {
                 severity: 'HIGH',
                 table: 'Transaction',
                 record_id: trans.id,
-                record_code: trans.code,
+                record_code: trans.code ?? undefined,
                 field: 'ARTransaction',
                 expected: 'Should exist',
                 actual: 'Missing',
@@ -154,7 +154,7 @@ async function checkTransactionARAPSync() {
                     severity: 'CRITICAL',
                     table: 'ARTransaction',
                     record_id: arRecord.id,
-                    record_code: trans.code,
+                    record_code: trans.code ?? undefined,
                     field: 'balance',
                     expected: transBalance,
                     actual: arBalance,
@@ -193,7 +193,7 @@ async function checkTransactionARAPSync() {
                 severity: 'HIGH',
                 table: 'Transaction',
                 record_id: trans.id,
-                record_code: trans.code,
+                record_code: trans.code ?? undefined,
                 field: 'APTransaction',
                 expected: 'Should exist',
                 actual: 'Missing',
@@ -210,7 +210,7 @@ async function checkTransactionARAPSync() {
                     severity: 'CRITICAL',
                     table: 'APTransaction',
                     record_id: apRecord.id,
-                    record_code: trans.code,
+                    record_code: trans.code ?? undefined,
                     field: 'balance',
                     expected: transBalance,
                     actual: apBalance,

@@ -114,6 +114,13 @@ export function getCurrentUserId(): string | null {
 }
 
 /**
+ * Lấy user_id hoặc null (alias for getCurrentUserId)
+ */
+export function getCurrentUserIdOrNull(): string | null {
+    return getContext()?.userId ?? null;
+}
+
+/**
  * Lấy user email từ context hiện tại
  */
 export function getCurrentUserEmail(): string | null {

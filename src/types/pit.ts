@@ -60,11 +60,16 @@ export interface PITBatchResult {
     period: string;
     total_employees: number;
     total_pit: number;
+    total_gross?: number;
     calculations: PITCalculationResult[];
     summary: {
         progressive_count: number;
+        progressive?: number;
         flat_10_count: number;
+        flat_10?: number;
         flat_20_count: number;
+        flat_20?: number;
         exempt_count: number;
+        exempt?: number;
     };
 }

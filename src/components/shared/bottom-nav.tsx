@@ -30,12 +30,15 @@ const mainNavItems = [
 ];
 
 const moreNavItems = [
+    { href: '/tai-san', label: '🏭 Tài sản cố định' },
+    { href: '/tai-san/bang-khau-hao', label: '📋 Bảng khấu hao' },
     { href: '/nhan-vien', label: 'Nhân công' },
     { href: '/cham-cong', label: 'Chấm công' },
     { href: '/bang-luong', label: 'Bảng lương' },
     { href: '/cong-no', label: 'Công nợ' },
     { href: '/hoa-don', label: 'Hóa đơn' },
     { href: '/bao-cao', label: 'Báo cáo' },
+    { href: '/bao-cao/tai-chinh', label: '📊 Báo cáo tài chính' },
     { href: '/thue', label: '📊 Tuân thủ thuế' },
     { href: '/thue/to-khai', label: 'Tờ khai VAT' },
     { href: '/thue/tndn', label: 'Thuế TNDN (CIT)' },

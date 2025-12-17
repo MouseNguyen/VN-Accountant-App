@@ -2,19 +2,13 @@
 // Check for tax rules updates
 
 import { NextRequest, NextResponse } from 'next/server';
-import { withAuth, getCurrentFarmId } from '@/lib/auth/middleware';
+import { withAuth } from '@/lib/auth';
+import { getCurrentFarmId } from '@/lib/context';
 import { checkForUpdates } from '@/lib/tax/sync-service';
 
 export const GET = withAuth(async (req: NextRequest) => {
     try {
         const farmId = getCurrentFarmId();
-
-        if (!farmId) {
-            return NextResponse.json(
-                { success: false, error: 'Farm ID required' },
-                { status: 400 }
-            );
-        }
 
         const result = await checkForUpdates(farmId);
 

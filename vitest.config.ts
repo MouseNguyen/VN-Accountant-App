@@ -16,7 +16,7 @@ export default defineConfig({
         setupFiles: ['./src/tests/setup.ts'],
 
         // Test file patterns
-        include: ['src/**/*.{test,spec}.{ts,tsx}'],
+        include: ['src/**/*.{test,spec}.{ts,tsx}', 'tests/**/*.{test,spec}.{ts,tsx}'],
 
         // Exclude patterns
         exclude: ['node_modules', '.next', 'dist'],

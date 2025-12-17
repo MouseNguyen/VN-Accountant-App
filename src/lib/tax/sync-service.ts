@@ -222,7 +222,7 @@ export async function syncTaxRules(farmId: string): Promise<SyncResult> {
                             original_value: masterRule.value,
                             condition: masterRule.condition
                                 ? JSON.stringify(masterRule.condition)
-                                : null,
+                                : undefined,
                             description: masterRule.description,
                             reference: masterRule.reference,
                             effective_from: new Date(masterRule.effective_from),
@@ -278,7 +278,7 @@ export async function syncTaxRules(farmId: string): Promise<SyncResult> {
                             limit_value: masterRule.limit_value,
                             condition: masterRule.condition
                                 ? JSON.stringify(masterRule.condition)
-                                : null,
+                                : undefined,
                             description: masterRule.description,
                             reference: masterRule.reference,
                             effective_from: new Date(masterRule.effective_from),
@@ -448,8 +448,7 @@ export async function updateRuleValue(
                 action: 'USER_OVERRIDE',
                 old_value: oldValue,
                 new_value: newValue,
-                changed_by: userId,
-                note: `User đã thay đổi giá trị: ${oldValue} → ${newValue}`,
+                note: `User ${userId ? `(${userId})` : ''} đã thay đổi giá trị: ${oldValue} → ${newValue}`,
             },
         });
     });

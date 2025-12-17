@@ -49,6 +49,8 @@ export interface RuleCondition {
     amount_lte?: number;           // Số tiền <= X
     amount_gt?: number;            // Số tiền > X
     amount_lt?: number;            // Số tiền < X
+    amount_per_person_gte?: number; // Entertainment: chi phí/người >= X
+    entertainment_ratio_gt?: number; // Entertainment ratio > X%
 
     // ==================== PAYMENT METHOD ====================
     payment_method?: 'CASH' | 'BANK_TRANSFER' | 'CREDIT' | 'MOMO' | 'ZALO_PAY' | 'OTHER';
@@ -185,6 +187,11 @@ export interface EvaluationContext {
     welfare_type?: string;
     total_welfare_year?: number;
     avg_monthly_salary?: number;
+
+    // ==================== ENTERTAINMENT ====================
+    amount_per_person?: number;
+    total_entertainment?: number;
+    total_expenses?: number;
 
     // ==================== DEPRECIATION ====================
     depreciation_exceeds_tt45?: boolean;
