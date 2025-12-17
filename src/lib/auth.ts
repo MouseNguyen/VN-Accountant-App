@@ -207,6 +207,86 @@ export async function validateRefreshToken(token: string): Promise<boolean> {
 }
 
 // ==========================================
+// REFRESH TOKEN ROTATION
+// ==========================================
+
+/**
+ * Rotate refresh token - invalidate old token, issue new one
+ * This prevents token reuse attacks
+ */
+export async function rotateRefreshToken(
+    oldToken: string,
+    userId: string,
+    deviceInfo?: string,
+    ipAddress?: string
+): Promise<{ newRefreshToken: string; newAccessToken: string } | null> {
+    const hashedOldToken = hashToken(oldToken);
+
+    // Find the stored token
+    const storedToken = await prismaBase.refreshToken.findFirst({
+        where: {
+            token: hashedOldToken,
+            user_id: userId,
+            expires_at: { gt: new Date() },
+        },
+    });
+
+    if (!storedToken) {
+        // Token not found or expired - possible token reuse attack
+        console.warn(`[SECURITY] Refresh token not found or expired for user ${userId}`, {
+            timestamp: new Date().toISOString(),
+            ip: ipAddress,
+        });
+        return null;
+    }
+
+    // Check if token was already used (rotation detection)
+    if (storedToken.used_at) {
+        // TOKEN REUSE DETECTED - possible theft!
+        console.error(`[SECURITY] Refresh token reuse detected for user ${userId}!`, {
+            timestamp: new Date().toISOString(),
+            originalIP: storedToken.ip_address,
+            currentIP: ipAddress,
+        });
+
+        // Invalidate ALL tokens for this user as a safety measure
+        await deleteAllRefreshTokens(userId);
+        return null;
+    }
+
+    // Get user data for new tokens
+    const user = await prismaBase.user.findUnique({
+        where: { id: userId },
+        include: { farms: { take: 1 } },
+    });
+
+    if (!user) return null;
+
+    const farmId = user.farms[0]?.farm_id || '';
+    const tokenPayload = { userId, farmId, email: user.email };
+
+    // Mark old token as used
+    await prismaBase.refreshToken.update({
+        where: { id: storedToken.id },
+        data: { used_at: new Date() },
+    });
+
+    // Generate new tokens
+    const newAccessToken = await createAccessToken(tokenPayload);
+    const newRefreshToken = await createRefreshToken(tokenPayload);
+
+    // Save new refresh token
+    await saveRefreshToken(userId, newRefreshToken, deviceInfo, ipAddress);
+
+    // Delete the old token after successful rotation
+    await prismaBase.refreshToken.delete({
+        where: { id: storedToken.id },
+    });
+
+    return { newRefreshToken, newAccessToken };
+}
+
+// ==========================================
 // GET CURRENT USER (Cookie-based)
 // ==========================================
 
