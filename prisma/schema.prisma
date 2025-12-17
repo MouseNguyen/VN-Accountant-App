@@ -236,6 +236,7 @@ model Farm {
   ap_payments       APPayment[]
   ap_invoice_payment_allocations APInvoicePaymentAllocation[]
   bank_accounts     BankAccount[]
+  credit_memos      CreditMemo[]
   
   @@map("farms")
 }
@@ -529,6 +530,7 @@ model Partner {
   ar_payments_customer ARPayment[] @relation("ARPaymentCustomer")
   ap_invoices_vendor   APInvoice[] @relation("APInvoiceVendor")
   ap_payments_vendor   APPayment[] @relation("APPaymentVendor")
+  credit_memos_customer CreditMemo[] @relation("CreditMemoCustomer")
   
   @@unique([farm_id, code])
   @@index([farm_id, partner_type])
@@ -2308,6 +2310,7 @@ model ARInvoice {
   customer          Partner         @relation("ARInvoiceCustomer", fields: [customer_id], references: [id])
   lines             ARInvoiceLine[]
   allocations       ARInvoicePaymentAllocation[]
+  credit_memos      CreditMemo[]    @relation("CreditMemoInvoice")
   
   @@unique([farm_id, invoice_number])
   @@index([farm_id, status])
@@ -2406,6 +2409,53 @@ model ARInvoicePaymentAllocation {
   @@unique([payment_id, invoice_id])
   @@index([farm_id])
   @@map("ar_invoice_payment_allocations")
+}
+
+/// CreditMemo - Phiếu giảm giá/hoàn trả AR (Credit Note)
+model CreditMemo {
+  id                String          @id @default(uuid())
+  farm_id           String
+  memo_number       String                              // CM-2025-00001
+  memo_date         DateTime        @db.Date
+  customer_id       String
+  invoice_id        String?                             // Optional: linked to original invoice
+  
+  // Amounts
+  sub_total         Decimal         @db.Decimal(18, 2) @default(0)
+  tax_amount        Decimal         @db.Decimal(18, 2) @default(0)
+  total_amount      Decimal         @db.Decimal(18, 2) @default(0)
+  applied_amount    Decimal         @db.Decimal(18, 2) @default(0)
+  
+  // Status
+  status            CreditMemoStatus @default(DRAFT)
+  posted_at         DateTime?
+  posted_by         String?
+  
+  // Details
+  reason            String?
+  notes             String?
+  
+  // Meta
+  created_at        DateTime        @default(now())
+  updated_at        DateTime        @updatedAt
+  created_by        String?
+  
+  // Relations
+  farm              Farm            @relation(fields: [farm_id], references: [id], onDelete: Cascade)
+  customer          Partner         @relation("CreditMemoCustomer", fields: [customer_id], references: [id])
+  invoice           ARInvoice?      @relation("CreditMemoInvoice", fields: [invoice_id], references: [id])
+  
+  @@unique([farm_id, memo_number])
+  @@index([farm_id, status])
+  @@index([customer_id])
+  @@map("credit_memos")
+}
+
+enum CreditMemoStatus {
+  DRAFT
+  POSTED
+  APPLIED
+  VOID
 }
 
 /// APInvoice - Hóa đơn mua hàng
