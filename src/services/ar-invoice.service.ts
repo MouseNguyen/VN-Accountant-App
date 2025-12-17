@@ -362,19 +362,48 @@ export async function postInvoice(
             }
         }
 
-        // 2b. Update customer balance (tăng công nợ)
+        // 2b. Create journal entry (Transaction)
+        const journalNumber = await generateJournalNumber(tx, farmId, invoice.invoice_date);
+        const journalEntry = await tx.transaction.create({
+            data: {
+                farm_id: farmId,
+                trans_number: journalNumber,
+                code: journalNumber,
+                trans_date: invoice.invoice_date,
+                trans_type: 'INCOME',
+                partner_id: invoice.customer_id,
+                partner_name: invoice.customer?.name,
+                amount: invoice.sub_total,
+                subtotal: invoice.sub_total,
+                vat_amount: invoice.tax_amount,
+                tax_amount: invoice.tax_amount,
+                discount_amount: invoice.discount_amount,
+                total_amount: invoice.total_amount,
+                payment_status: 'PENDING',
+                paid_amount: 0,
+                debit_account: '131', // Công nợ phải thu
+                credit_account: '511', // Doanh thu
+                description: `Bán hàng - ${invoice.invoice_number}`,
+                notes: invoice.description,
+                income_category: 'GENERAL',
+                created_by: userId,
+            },
+        });
+
+        // 2c. Update customer balance (tăng công nợ)
         await tx.partner.update({
             where: { id: invoice.customer_id },
             data: { balance: { increment: invoice.total_amount } },
         });
 
-        // 2c. Update invoice status
+        // 2d. Update invoice status
         return tx.aRInvoice.update({
             where: { id: invoiceId },
             data: {
                 status: 'POSTED',
                 posted_at: new Date(),
                 posted_by: userId,
+                journal_entry_id: journalEntry.id,
             },
             include: {
                 customer: { select: { id: true, name: true, code: true } },
@@ -495,6 +524,28 @@ async function generateMovementCodeForPost(tx: any, farmId: string, date: Date):
     let seq = 1;
     if (lastMovement) {
         const lastSeq = parseInt(lastMovement.code.slice(-3) || '0');
+        seq = lastSeq + 1;
+    }
+
+    return `${prefix}${seq.toString().padStart(3, '0')}`;
+}
+
+// Helper: Generate journal entry number
+async function generateJournalNumber(tx: any, farmId: string, date: Date): Promise<string> {
+    const dateStr = date.toISOString().slice(2, 10).replace(/-/g, ''); // YYMMDD
+    const prefix = `JE${dateStr}`; // JE = Journal Entry
+
+    const lastEntry = await tx.transaction.findFirst({
+        where: {
+            farm_id: farmId,
+            trans_number: { startsWith: prefix },
+        },
+        orderBy: { trans_number: 'desc' },
+    });
+
+    let seq = 1;
+    if (lastEntry) {
+        const lastSeq = parseInt(lastEntry.trans_number.slice(-3) || '0');
         seq = lastSeq + 1;
     }
 
