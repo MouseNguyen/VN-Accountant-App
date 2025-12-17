@@ -3,15 +3,23 @@
 // src/app/(dashboard)/financial/page.tsx
 // Financial Dashboard Page - Phase 4 Tasks 7-8-9
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { KPICard, formatCurrency, formatCompact } from '@/components/dashboard/kpi-card';
+import {
+    RevenueTrendChart,
+    ARAgingPieChart,
+    TopCustomersChart,
+    CashForecastChart,
+} from '@/components/dashboard/trend-chart';
 import {
     useCashForecast,
     useFinancialKPIs,
     useChartData,
 } from '@/hooks/use-financial-reports';
+import { exportToPDF, formatDateForPDF } from '@/lib/pdf-export';
+import { useToast } from '@/hooks/use-toast';
 import {
     DollarSign,
     TrendingUp,
@@ -29,8 +37,25 @@ export default function FinancialDashboardPage() {
     const { data: kpis, isLoading: kpisLoading } = useFinancialKPIs();
     const { data: forecast, isLoading: forecastLoading } = useCashForecast(30);
     const { data: chartData, isLoading: chartsLoading } = useChartData('all');
+    const [isExporting, setIsExporting] = useState(false);
+    const { toast } = useToast();
 
     const isLoading = kpisLoading || forecastLoading || chartsLoading;
+
+    const handleExportPDF = async () => {
+        setIsExporting(true);
+        try {
+            await exportToPDF('financial-report', {
+                filename: `Bao_cao_tai_chinh_${new Date().toISOString().split('T')[0]}.pdf`,
+                orientation: 'portrait',
+            });
+            toast({ title: 'Xuất PDF thành công!' });
+        } catch (error) {
+            toast({ title: 'Lỗi xuất PDF', variant: 'destructive' });
+        } finally {
+            setIsExporting(false);
+        }
+    };
 
     if (isLoading) {
         return (
@@ -41,17 +66,26 @@ export default function FinancialDashboardPage() {
     }
 
     return (
-        <div className="p-4 md:p-6 space-y-6">
+        <div className="p-4 md:p-6 space-y-6" id="financial-report">
             {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 print:hidden">
                 <div>
                     <h1 className="text-2xl font-bold">Báo cáo Tài chính</h1>
                     <p className="text-muted-foreground">
-                        Tổng quan tình hình tài chính doanh nghiệp
+                        Tổng quan tình hình tài chính doanh nghiệp - {formatDateForPDF()}
                     </p>
                 </div>
-                <Button variant="outline" className="gap-2">
-                    <Download className="h-4 w-4" />
+                <Button
+                    variant="outline"
+                    className="gap-2"
+                    onClick={handleExportPDF}
+                    disabled={isExporting}
+                >
+                    {isExporting ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                        <Download className="h-4 w-4" />
+                    )}
                     Xuất PDF
                 </Button>
             </div>
@@ -193,34 +227,13 @@ export default function FinancialDashboardPage() {
                         <CardTitle>Tuổi nợ phải thu (AR Aging)</CardTitle>
                     </CardHeader>
                     <CardContent>
-                        <div className="space-y-3">
-                            {chartData?.ar_aging_pie?.map((item, idx) => (
-                                <div key={idx} className="flex items-center gap-3">
-                                    <div
-                                        className="w-4 h-4 rounded-full"
-                                        style={{ backgroundColor: item.color }}
-                                    />
-                                    <div className="flex-1">
-                                        <div className="flex justify-between">
-                                            <span>{item.bucket}</span>
-                                            <span className="font-medium">{formatCompact(item.amount)}</span>
-                                        </div>
-                                        <div className="w-full bg-muted rounded-full h-2 mt-1">
-                                            <div
-                                                className="h-2 rounded-full"
-                                                style={{
-                                                    width: `${item.percentage}%`,
-                                                    backgroundColor: item.color,
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
-                                    <span className="text-sm text-muted-foreground w-12 text-right">
-                                        {item.percentage.toFixed(1)}%
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
+                        {chartData?.ar_aging_pie && chartData.ar_aging_pie.length > 0 ? (
+                            <ARAgingPieChart data={chartData.ar_aging_pie} />
+                        ) : (
+                            <div className="text-center py-8 text-muted-foreground">
+                                Không có dữ liệu công nợ
+                            </div>
+                        )}
                     </CardContent>
                 </Card>
 
@@ -261,36 +274,38 @@ export default function FinancialDashboardPage() {
                 </Card>
             </div>
 
-            {/* Revenue Trend */}
+            {/* Revenue Trend Chart */}
             <Card>
                 <CardHeader>
                     <CardTitle>Xu hướng Doanh thu & Chi phí (12 tháng)</CardTitle>
                 </CardHeader>
                 <CardContent>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                            <thead className="bg-muted">
-                                <tr>
-                                    <th className="text-left p-2">Tháng</th>
-                                    <th className="text-right p-2">Doanh thu</th>
-                                    <th className="text-right p-2">Chi phí</th>
-                                    <th className="text-right p-2">Lợi nhuận</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {chartData?.revenue_trend?.map((item, idx) => (
-                                    <tr key={idx} className="border-b hover:bg-muted/50">
-                                        <td className="p-2">{item.month}</td>
-                                        <td className="text-right p-2 text-green-600">{formatCompact(item.revenue)}</td>
-                                        <td className="text-right p-2 text-red-600">{formatCompact(item.expenses)}</td>
-                                        <td className={`text-right p-2 font-medium ${item.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                                            {formatCompact(item.profit)}
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
+                    {chartData?.revenue_trend && chartData.revenue_trend.length > 0 ? (
+                        <RevenueTrendChart data={chartData.revenue_trend} />
+                    ) : (
+                        <div className="text-center py-8 text-muted-foreground">
+                            Không có dữ liệu xu hướng
+                        </div>
+                    )}
+                </CardContent>
+            </Card>
+
+            {/* Top Customers Chart */}
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <Users className="h-5 w-5" />
+                        Top 10 Khách hàng (Biểu đồ)
+                    </CardTitle>
+                </CardHeader>
+                <CardContent>
+                    {chartData?.top_customers && chartData.top_customers.length > 0 ? (
+                        <TopCustomersChart data={chartData.top_customers} />
+                    ) : (
+                        <div className="text-center py-8 text-muted-foreground">
+                            Không có dữ liệu khách hàng
+                        </div>
+                    )}
                 </CardContent>
             </Card>
         </div>
