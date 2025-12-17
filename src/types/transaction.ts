@@ -223,6 +223,9 @@ export const PAYMENT_STATUS_LABELS: Record<PaymentStatus, string> = {
     PARTIAL: 'Thanh toán một phần',
     PAID: 'Đã thanh toán',
     CANCELLED: 'Đã hủy',
+    DRAFT: 'Nháp',
+    POSTED: 'Đã ghi sổ',
+    VOID: 'Đã hủy',
 };
 
 export const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
@@ -231,4 +234,7 @@ export const PAYMENT_STATUS_COLORS: Record<PaymentStatus, string> = {
     PARTIAL: 'bg-blue-100 text-blue-800',
     PAID: 'bg-green-100 text-green-800',
     CANCELLED: 'bg-gray-100 text-gray-800',
+    DRAFT: 'bg-gray-100 text-gray-600',
+    POSTED: 'bg-green-100 text-green-800',
+    VOID: 'bg-red-100 text-red-800',
 };

@@ -28,9 +28,9 @@ describe('VAT Validation Integration', () => {
                 {
                     farm_id: testFarmId,
                     code: 'VAT_CASH_LIMIT',
-                    rule_type: 'VAT_INPUT',
+                    rule_type: 'VAT_DEDUCTIBLE',
                     category: 'CASH',
-                    action: 'REJECT_DEDUCTION',
+                    action: 'DENY',
                     value: 20000000, // 20M VND limit
                     description: 'Cash payment over 20M',
                     is_active: true,
@@ -38,9 +38,9 @@ describe('VAT Validation Integration', () => {
                 {
                     farm_id: testFarmId,
                     code: 'VAT_VEHICLE_UNDER_9',
-                    rule_type: 'VAT_INPUT',
+                    rule_type: 'VAT_DEDUCTIBLE',
                     category: 'VEHICLE',
-                    action: 'REJECT_DEDUCTION',
+                    action: 'DENY',
                     value: 0,
                     description: 'Vehicles under 9 seats',
                     is_active: true,

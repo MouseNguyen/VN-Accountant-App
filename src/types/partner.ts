@@ -1,7 +1,7 @@
 // src/types/partner.ts
 // Shared types for Partner between Backend and Frontend
 
-import type { PartnerType } from '@prisma/client';
+import type { PartnerType, SupplierStatus } from '@prisma/client';
 
 /**
  * Partner entity (serialized for JSON)
@@ -11,6 +11,8 @@ export interface Partner {
     code: string;
     name: string;
     partner_type: PartnerType;
+    // Tax Engine 2025: VAT_SUPPLIER_STATUS rule
+    supplier_status?: SupplierStatus;
     phone?: string | null;
     email?: string | null;
     address?: string | null;
@@ -56,6 +58,8 @@ export interface PartnerListResponse {
 export interface CreatePartnerInput {
     name: string;
     partner_type: PartnerType;
+    // Tax Engine 2025: VAT_SUPPLIER_STATUS rule
+    supplier_status?: SupplierStatus;
     phone?: string;
     email?: string;
     address?: string;

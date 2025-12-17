@@ -4,6 +4,8 @@ import { getCurrentFarmId, getContext } from '@/lib/context';
 import { createAuditLog } from './audit-log.service';
 import { calculateWorkerPayroll } from '@/lib/payroll-calculator';
 import { getAttendanceSummary } from './attendance.service';
+// Tax Engine 2025: PIT calculation
+import { calculatePIT } from '@/lib/tax/pit-calculator';
 import type { PayrollQueryInput, CreatePayrollInput, UpdatePayrollItemInput, PayrollPaymentInput } from '@/lib/validations/payroll';
 import type { Payroll, PayrollListResponse, InsuranceConfig } from '@/types/payroll';
 
@@ -292,6 +294,31 @@ export async function createPayroll(input: CreatePayrollInput): Promise<Payroll>
                 config,
             });
 
+            // ==========================================
+            // TAX ENGINE 2025: Calculate PIT using proper rules
+            // ==========================================
+            let taxAmount = calc.tax_amount;
+            let pitMethod: string | undefined;
+
+            try {
+                const pitResult = await calculatePIT(farmId, {
+                    employee_id: worker.id,
+                    period: `${periodStart.getFullYear()}-${String(periodStart.getMonth() + 1).padStart(2, '0')}`,
+                    gross_income: calc.gross_amount,
+                    dependents_count: worker.dependents ?? 0,
+                    other_deduction: calc.total_deduction,
+                });
+
+                taxAmount = pitResult.pit_amount;
+                pitMethod = pitResult.tax_method;
+            } catch (pitError) {
+                // Tax Engine failed, fallback to simple calculation
+                console.warn('PIT calculation fallback:', pitError);
+            }
+
+            // Recalculate net with Tax Engine PIT
+            const netAmount = calc.gross_amount - calc.insurance_amount - taxAmount;
+
             await tx.payrollItem.create({
                 data: {
                     farm_id: farmId,
@@ -323,19 +350,20 @@ export async function createPayroll(input: CreatePayrollInput): Promise<Payroll>
                     employer_bhtn: calc.employer_bhtn,
                     employer_bhtnld: calc.employer_bhtnld,
                     employer_insurance: calc.employer_insurance,
-                    // Thuế và tổng
-                    tax_amount: calc.tax_amount,
+                    // Thuế và tổng (using Tax Engine PIT)
+                    tax_amount: taxAmount,
                     gross_amount: calc.gross_amount,
-                    net_amount: calc.net_amount,
+                    net_amount: netAmount,
+                    note: pitMethod ? `PIT: ${pitMethod}` : undefined,
                 },
             });
 
             totals.base += calc.base_amount;
             totals.ot += calc.total_ot;
             totals.allowance += calc.total_allowance;
-            totals.deduction += calc.total_deduction + calc.insurance_amount + calc.tax_amount;
+            totals.deduction += calc.total_deduction + calc.insurance_amount + taxAmount;
             totals.gross += calc.gross_amount;
-            totals.net += calc.net_amount;
+            totals.net += netAmount;
         }
 
         // Cập nhật totals

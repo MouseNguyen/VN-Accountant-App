@@ -37,7 +37,7 @@ export async function exportToPDF(
         jsPDF: { unit: 'mm', format, orientation },
     };
 
-    await html2pdf().set(opt).from(element).save();
+    await html2pdf().set(opt as any).from(element).save();
 }
 
 export function formatDateForPDF(): string {

@@ -52,11 +52,19 @@ async function main() {
         transactions.forEach(t => {
             const unpaid = Number(t.total_amount) - Number(t.paid_amount);
             if (unpaid > 0) {
-                outstanding += t.trans_type === 'INCOME' ? unpaid : -unpaid;
+                // SALE/INCOME = customer owes us = positive AR balance
+                // PURCHASE/EXPENSE = we owe vendor = negative (but stored as positive in partner.balance for vendors)
+                if (['SALE', 'INCOME'].includes(t.trans_type)) {
+                    outstanding += unpaid;  // Customer owes us
+                } else {
+                    outstanding -= unpaid;  // We owe vendor (negative from our perspective)
+                }
             }
         });
 
         const dbBalance = Number(partner.balance);
+        // For customers: balance should be positive (they owe us)
+        // For vendors: balance should be negative (we owe them) but DB stores as negative
         const match = dbBalance === outstanding ? '✅' : '❌';
 
         if (dbBalance !== 0 || outstanding !== 0) {

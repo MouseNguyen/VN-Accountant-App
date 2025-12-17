@@ -11,7 +11,7 @@ export const POST = withAuth(
         try {
             // Check if 2FA already enabled
             const dbUser = await prisma.user.findUnique({
-                where: { id: user.user_id },
+                where: { id: user.id },
                 select: { two_factor_enabled: true, two_factor_secret: true },
             });
 
@@ -30,7 +30,7 @@ export const POST = withAuth(
 
             // Store secret temporarily (not enabled yet)
             await prisma.user.update({
-                where: { id: user.user_id },
+                where: { id: user.id },
                 data: {
                     two_factor_secret: result.secret,
                     backup_codes: hashedBackupCodes,

@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useToast } from '@/hooks/use-toast';
 import {
     Plus, Search, Users, UserCheck, UserX, Edit, Trash2, Phone,
@@ -36,6 +37,14 @@ const WORKER_TYPES = [
     { value: 'FULL_TIME', label: 'Toàn thời gian' },
     { value: 'PART_TIME', label: 'Bán thời gian' },
     { value: 'SEASONAL', label: 'Thời vụ' },
+];
+
+/** Tax Engine 2025: LaborType for PIT flat rate rules */
+const LABOR_TYPES = [
+    { value: 'FULL_TIME', label: 'Toàn thời gian (HĐ >= 3 tháng)', description: 'Thuế lũy tiến 7 bậc' },
+    { value: 'CASUAL', label: 'Thời vụ/Khoán', description: 'Khấu trừ 10% (>= 2tr)' },
+    { value: 'PROBATION', label: 'Thử việc', description: 'Khấu trừ 10%' },
+    { value: 'NON_RESIDENT', label: 'Không cư trú', description: 'Khấu trừ 20%' },
 ];
 
 const SALARY_TYPES = [
@@ -62,6 +71,9 @@ export default function WorkersPage() {
         dependents: '0',
         bank_name: '',
         bank_account: '',
+        // Tax Engine 2025: PIT fields
+        labor_type: 'FULL_TIME',
+        has_commitment_08: false,
     });
 
     const { data, isLoading } = useWorkers({
@@ -83,6 +95,8 @@ export default function WorkersPage() {
             dependents: '0',
             bank_name: '',
             bank_account: '',
+            labor_type: 'FULL_TIME',
+            has_commitment_08: false,
         });
         setEditingWorker(null);
     };
@@ -103,6 +117,8 @@ export default function WorkersPage() {
             dependents: worker.dependents?.toString() || '0',
             bank_name: worker.bank_name || '',
             bank_account: worker.bank_account || '',
+            labor_type: worker.labor_type || 'FULL_TIME',
+            has_commitment_08: worker.has_commitment_08 || false,
         });
         setIsDialogOpen(true);
     };
@@ -123,6 +139,9 @@ export default function WorkersPage() {
                 dependents: parseInt(formData.dependents) || 0,
                 bank_name: formData.bank_name || undefined,
                 bank_account: formData.bank_account || undefined,
+                // Tax Engine 2025: PIT fields
+                labor_type: formData.labor_type as any,
+                has_commitment_08: formData.has_commitment_08,
             };
 
             if (editingWorker) {
@@ -409,6 +428,62 @@ export default function WorkersPage() {
                                     value={formData.bank_account}
                                     onChange={(e) => setFormData({ ...formData, bank_account: e.target.value })}
                                 />
+                            </div>
+                        </div>
+
+                        {/* Tax Engine 2025: PIT Rules Section */}
+                        <div className="border-t pt-4 mt-4">
+                            <div className="flex items-center gap-2 mb-3">
+                                <Label className="text-sm font-medium">🧮 Thông tin thuế TNCN</Label>
+                                <Badge variant="outline" className="text-xs">Tax Engine</Badge>
+                            </div>
+
+                            <div className="grid gap-4">
+                                <div className="grid gap-2">
+                                    <Label>Loại lao động (PIT)</Label>
+                                    <Select
+                                        value={formData.labor_type}
+                                        onValueChange={(v) => setFormData({ ...formData, labor_type: v })}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {LABOR_TYPES.map(t => (
+                                                <SelectItem key={t.value} value={t.value}>
+                                                    <div>
+                                                        <div>{t.label}</div>
+                                                        <div className="text-xs text-muted-foreground">{t.description}</div>
+                                                    </div>
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+
+                                {/* Show Commitment 08 checkbox for CASUAL workers */}
+                                {formData.labor_type === 'CASUAL' && (
+                                    <div className="flex items-start space-x-3 p-3 bg-yellow-50 dark:bg-yellow-950/30 rounded-lg border border-yellow-200 dark:border-yellow-900">
+                                        <Checkbox
+                                            id="commitment08"
+                                            checked={formData.has_commitment_08}
+                                            onCheckedChange={(checked) =>
+                                                setFormData({ ...formData, has_commitment_08: checked as boolean })
+                                            }
+                                        />
+                                        <div className="grid gap-1.5 leading-none">
+                                            <label
+                                                htmlFor="commitment08"
+                                                className="text-sm font-medium leading-none cursor-pointer"
+                                            >
+                                                Có Cam kết 08
+                                            </label>
+                                            <p className="text-xs text-muted-foreground">
+                                                NV có cam kết thu nhập cả năm &lt; 132tr → Không khấu trừ 10%
+                                            </p>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

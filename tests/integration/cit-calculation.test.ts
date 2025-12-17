@@ -28,20 +28,24 @@ describe('CIT Calculation Integration', () => {
                 // Sales revenue
                 {
                     farm_id: testFarmId,
+                    trans_number: 'CIT-S001',
+                    code: 'CIT-S001',
                     trans_type: 'SALE',
+                    amount: 100000000,
                     total_amount: 100000000,
                     trans_date: new Date('2024-10-15'),
                     payment_status: 'PAID',
-                    code: 'CIT-S001',
                 },
                 // Purchase expense
                 {
                     farm_id: testFarmId,
+                    trans_number: 'CIT-P001',
+                    code: 'CIT-P001',
                     trans_type: 'PURCHASE',
+                    amount: 60000000,
                     total_amount: 60000000,
                     trans_date: new Date('2024-11-01'),
                     payment_status: 'PAID',
-                    code: 'CIT-P001',
                 },
             ],
             skipDuplicates: true,
@@ -72,11 +76,13 @@ describe('CIT Calculation Integration', () => {
         await prisma.transaction.create({
             data: {
                 farm_id: testFarmId,
+                trans_number: 'CIT-E001',
+                code: 'CIT-E001',
                 trans_type: 'EXPENSE',
+                amount: 50000000,
                 total_amount: 50000000,
                 trans_date: new Date('2024-12-01'),
                 payment_status: 'PAID',
-                code: 'CIT-E001',
             },
         });
 
@@ -112,11 +118,13 @@ describe('CIT Calculation Integration', () => {
         await prisma.transaction.create({
             data: {
                 farm_id: testFarmId,
+                trans_number: 'CIT-S002',
+                code: 'CIT-S002',
                 trans_type: 'SALE',
+                amount: 50000000,
                 total_amount: 50000000,
                 trans_date: new Date('2024-12-15'),
                 payment_status: 'PAID',
-                code: 'CIT-S002',
             },
         });
 

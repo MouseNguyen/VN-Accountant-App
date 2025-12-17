@@ -36,11 +36,11 @@ export async function calculateCIT(
     const { startDate, endDate } = parsePeriod(input.period, input.period_type);
     const userId = getCurrentUserId();
 
-    // 1. Calculate REVENUE (INCOME transactions)
+    // 1. Calculate REVENUE (SALE + INCOME transactions)
     const revenueResult = await prisma.transaction.aggregate({
         where: {
             farm_id: farmId,
-            trans_type: 'INCOME',
+            trans_type: { in: ['SALE', 'INCOME'] },
             trans_date: { gte: startDate, lte: endDate },
             deleted_at: null,
         },
@@ -48,11 +48,11 @@ export async function calculateCIT(
     });
     const totalRevenue = Number(revenueResult._sum.total_amount || 0);
 
-    // 2. Calculate EXPENSES (EXPENSE + CASH_OUT transactions)
+    // 2. Calculate EXPENSES (PURCHASE + EXPENSE + CASH_OUT transactions)
     const expensesResult = await prisma.transaction.aggregate({
         where: {
             farm_id: farmId,
-            trans_type: { in: ['EXPENSE', 'CASH_OUT'] },
+            trans_type: { in: ['PURCHASE', 'EXPENSE', 'CASH_OUT'] },
             trans_date: { gte: startDate, lte: endDate },
             deleted_at: null,
         },
@@ -263,7 +263,7 @@ export async function detectCITAddBacks(
     const revenueForLimit = await prisma.transaction.aggregate({
         where: {
             farm_id: farmId,
-            trans_type: 'INCOME',
+            trans_type: { in: ['SALE', 'INCOME'] },
             trans_date: { gte: startDate, lte: endDate },
             deleted_at: null,
         },

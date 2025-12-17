@@ -9,11 +9,12 @@ import { serializeDecimals } from '@/lib/api-utils';
 export const GET = withAuth(
     async (
         req: NextRequest,
-        context: { params: Promise<{ customerId: string }> },
+        context: { params: Promise<Record<string, string>> },
         user: AuthUser
     ) => {
         try {
-            const { customerId } = await context.params;
+            const params = await context.params;
+            const customerId = params.customerId;
             const searchParams = req.nextUrl.searchParams;
             const asOfDate = searchParams.get('as_of_date') || undefined;
 

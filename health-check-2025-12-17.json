@@ -1,11 +1,11 @@
 {
-  "timestamp": "2025-12-17T04:16:19.398Z",
+  "timestamp": "2025-12-17T13:25:11.543Z",
   "summary": {
-    "passed": 31,
+    "passed": 32,
     "failed": 0,
     "warnings": 1,
     "skipped": 0,
-    "total": 32
+    "total": 33
   },
   "categories": [
     {
@@ -40,8 +40,8 @@
     },
     {
       "name": "assets",
-      "passed": 2,
-      "total": 2
+      "passed": 3,
+      "total": 3
     },
     {
       "name": "audit",
@@ -212,7 +212,7 @@
       "name": "Fixed Assets",
       "category": "assets",
       "status": "PASS",
-      "message": "3 assets registered"
+      "message": "5 assets registered"
     },
     {
       "name": "Vehicle TS-003 > 1.6B",
@@ -221,10 +221,16 @@
       "message": "Has depreciation cap"
     },
     {
+      "name": "Vehicle TSCD-0005 > 1.6B",
+      "category": "assets",
+      "status": "PASS",
+      "message": "Has depreciation cap"
+    },
+    {
       "name": "Audit Log Entries",
       "category": "audit",
       "status": "PASS",
-      "message": "8 entries"
+      "message": "11 entries"
     },
     {
       "name": "Hash Chain Integrity",

@@ -60,23 +60,15 @@ export async function GET(request: NextRequest) {
         // Find or create user
         let user = await prisma.user.findUnique({
             where: { email: googleUser.email },
-            include: { farms: { take: 1 } },
+            include: { farm: true },
         });
 
         if (!user) {
-            // Create new user from Google account
-            user = await prisma.user.create({
-                data: {
-                    email: googleUser.email,
-                    name: googleUser.name,
-                    avatar_url: googleUser.picture,
-                    email_verified: googleUser.email_verified,
-                    password_hash: '', // No password for OAuth users
-                    oauth_provider: 'google',
-                    oauth_id: googleUser.provider_user_id,
-                },
-                include: { farms: { take: 1 } },
-            });
+            // OAuth users need a farm - for now, return error
+            // In production, you'd create a default farm or redirect to onboarding
+            return NextResponse.redirect(
+                `${process.env.NEXT_PUBLIC_APP_URL}/login?error=oauth_no_account`
+            );
         } else {
             // Update existing user with OAuth info
             await prisma.user.update({
@@ -91,7 +83,7 @@ export async function GET(request: NextRequest) {
         }
 
         // Get farm ID
-        const farmId = user.farms[0]?.farm_id || '';
+        const farmId = user.farm_id || '';
 
         // Create tokens
         const tokenPayload = {

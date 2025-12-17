@@ -27,12 +27,13 @@ describe('PIT Calculation Integration', () => {
         const worker = await prisma.worker.create({
             data: {
                 farm_id: testFarmId,
+                code: 'NV-TEST-PIT',
                 name: 'Nhân Viên Test',
                 phone: '0901234567',
                 status: 'ACTIVE',
                 salary_type: 'MONTHLY',
                 base_salary: 15000000,
-                dependents_count: 0,
+                dependents: 0,
             },
         });
         testEmployeeId = worker.id;
@@ -43,7 +44,7 @@ describe('PIT Calculation Integration', () => {
                 {
                     farm_id: testFarmId,
                     code: 'PIT_PERSONAL_DEDUCTION',
-                    rule_type: 'PIT',
+                    rule_type: 'PIT_DEDUCTION',
                     category: 'DEDUCTION',
                     action: 'CALCULATE',
                     value: 11000000,
@@ -53,7 +54,7 @@ describe('PIT Calculation Integration', () => {
                 {
                     farm_id: testFarmId,
                     code: 'PIT_DEPENDENT_DEDUCTION',
-                    rule_type: 'PIT',
+                    rule_type: 'PIT_DEDUCTION',
                     category: 'DEDUCTION',
                     action: 'CALCULATE',
                     value: 4400000,
@@ -63,7 +64,7 @@ describe('PIT Calculation Integration', () => {
                 {
                     farm_id: testFarmId,
                     code: 'PIT_INSURANCE_RATE',
-                    rule_type: 'PIT',
+                    rule_type: 'PIT_DEDUCTION',
                     category: 'INSURANCE',
                     action: 'CALCULATE',
                     value: 10.5,

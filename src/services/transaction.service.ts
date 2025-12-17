@@ -20,6 +20,8 @@ import {
     isGreaterThan,
 } from '@/lib/decimal';
 import { TRANSACTION_CONSTANTS } from '@/lib/validations/transaction';
+// Tax Engine 2025: VAT and CIT validation
+import { validateAndSaveVAT } from '@/lib/tax/vat-validator';
 
 // ==========================================
 // HELPER FUNCTIONS
@@ -703,6 +705,60 @@ export async function createTransaction(input: CreateTransactionInput) {
                 newValues: { code, trans_type: input.trans_type, total_amount: totalAmount },
                 description: `Tạo ${isOutbound ? 'phiếu thu' : 'phiếu chi'}: ${code}`,
             });
+
+            // ==========================================
+            // 12. TAX ENGINE 2025: Auto VAT/CIT Validation
+            // ==========================================
+            if (['PURCHASE', 'EXPENSE'].includes(input.trans_type) && itemTaxTotal > 0) {
+                try {
+                    // Get partner info for supplier status
+                    let supplierStatus: 'ACTIVE' | 'SUSPENDED' | 'CLOSED' | 'BANKRUPT' | undefined;
+                    let supplierTaxCode: string | undefined;
+                    let supplierName: string | undefined;
+
+                    if (input.partner_id) {
+                        const partner = await tx.partner.findUnique({
+                            where: { id: input.partner_id },
+                            select: { supplier_status: true, tax_code: true, name: true },
+                        });
+                        supplierStatus = partner?.supplier_status as any;
+                        supplierTaxCode = partner?.tax_code ?? undefined;
+                        supplierName = partner?.name ?? undefined;
+                    }
+
+                    // Validate VAT deduction
+                    const vatResult = await validateAndSaveVAT(farmId, transaction.id, {
+                        invoice_date: transDate,
+                        supplier_tax_code: supplierTaxCode,
+                        supplier_name: supplierName,
+                        supplier_status: supplierStatus,
+                        goods_value: Number(subtotal),
+                        vat_rate: Number(itemTaxTotal) > 0 ? (Number(itemTaxTotal) / Number(subtotal)) * 100 : 0,
+                        vat_amount: Number(itemTaxTotal),
+                        total_amount: totalAmount,
+                        payment_method: input.payment_method || 'CASH',
+                        has_bank_payment: input.payment_method === 'BANK_TRANSFER',
+                        skip_mst_lookup: true, // Skip MST lookup on create for speed
+                    });
+
+                    // Also check CIT deductibility (same rules as VAT for cash > 20M)
+                    const isCashOverLimit = (input.payment_method === 'CASH' && totalAmount >= 20000000);
+
+                    // Update CIT fields based on VAT result
+                    await tx.transaction.update({
+                        where: { id: transaction.id },
+                        data: {
+                            // CIT follows similar rules to VAT for cash payments
+                            cit_deductible: vatResult.is_deductible && !isCashOverLimit,
+                            cit_addback_amount: isCashOverLimit ? totalAmount : 0,
+                            cit_addback_reason: isCashOverLimit ? 'CIT_NO_INVOICE' : null,
+                        },
+                    });
+                } catch (taxError) {
+                    // Tax Engine validation is non-blocking - log and continue
+                    console.warn('Tax Engine validation warning:', taxError);
+                }
+            }
 
             return transaction;
         },

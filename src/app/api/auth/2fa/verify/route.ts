@@ -20,7 +20,7 @@ export const POST = withAuth(
             }
 
             const dbUser = await prisma.user.findUnique({
-                where: { id: user.user_id },
+                where: { id: user.id },
                 select: {
                     two_factor_secret: true,
                     two_factor_enabled: true,
@@ -48,7 +48,7 @@ export const POST = withAuth(
                         (code) => code !== token.replace('-', '')
                     );
                     await prisma.user.update({
-                        where: { id: user.user_id },
+                        where: { id: user.id },
                         data: { backup_codes: updatedCodes },
                     });
                 }
@@ -67,7 +67,7 @@ export const POST = withAuth(
             // If this is the first verification, enable 2FA
             if (!dbUser.two_factor_enabled) {
                 await prisma.user.update({
-                    where: { id: user.user_id },
+                    where: { id: user.id },
                     data: { two_factor_enabled: true },
                 });
 

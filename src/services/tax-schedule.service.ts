@@ -108,7 +108,7 @@ export async function generateTaxSchedules(
             if (dueDate > new Date()) {
                 schedules.push({
                     farm_id: farmId,
-                    tax_type: 'VAT_MONTHLY',
+                    tax_type: 'VAT',  // Monthly - identified by period format
                     period: `${year}-${String(month).padStart(2, '0')}`,
                     due_date: dueDate,
                 });
@@ -123,7 +123,7 @@ export async function generateTaxSchedules(
             if (dueDate > new Date()) {
                 schedules.push({
                     farm_id: farmId,
-                    tax_type: 'VAT_QUARTERLY',
+                    tax_type: 'VAT',  // Quarterly - identified by period format
                     period: `${year}-Q${q}`,
                     due_date: dueDate,
                 });
@@ -139,7 +139,7 @@ export async function generateTaxSchedules(
         if (dueDate > new Date()) {
             schedules.push({
                 farm_id: farmId,
-                tax_type: 'CIT_QUARTERLY',
+                tax_type: 'CIT',
                 period: `${year}-Q${q}`,
                 due_date: dueDate,
             });
@@ -151,7 +151,7 @@ export async function generateTaxSchedules(
     if (citAnnualDue > new Date()) {
         schedules.push({
             farm_id: farmId,
-            tax_type: 'CIT_ANNUAL',
+            tax_type: 'CIT',
             period: `${year}`,
             due_date: citAnnualDue,
         });
@@ -162,7 +162,7 @@ export async function generateTaxSchedules(
     if (pitAnnualDue > new Date()) {
         schedules.push({
             farm_id: farmId,
-            tax_type: 'PIT_ANNUAL',
+            tax_type: 'PIT',
             period: `${year}`,
             due_date: pitAnnualDue,
         });

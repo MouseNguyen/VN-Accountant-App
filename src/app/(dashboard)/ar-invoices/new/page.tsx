@@ -38,8 +38,7 @@ export default function NewARInvoicePage() {
         : 'test-farm-001';
 
     // Partners list
-    const { data: partnersData } = usePartners({ partner_type: 'CUSTOMER', limit: 100 });
-    const customers = partnersData?.items || [];
+    const { partners: customers } = usePartners({ partner_type: 'CUSTOMER', limit: 100 });
 
     // Form state
     const [customerId, setCustomerId] = useState('');

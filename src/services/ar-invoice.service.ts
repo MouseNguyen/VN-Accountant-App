@@ -313,7 +313,7 @@ export async function postInvoice(
     // 1. Validate invoice
     const invoice = await prisma.aRInvoice.findFirst({
         where: { id: invoiceId, farm_id: farmId },
-        include: { lines: true },
+        include: { lines: true, customer: { select: { name: true } } },
     });
 
     if (!invoice) throw new Error('Hóa đơn không tồn tại');

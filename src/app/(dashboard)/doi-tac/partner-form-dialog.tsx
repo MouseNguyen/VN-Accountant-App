@@ -46,11 +46,22 @@ import { toast } from 'sonner';
 /** Enum values khớp với Prisma Schema */
 const PARTNER_TYPE_VALUES = ['CUSTOMER', 'VENDOR', 'BOTH'] as const;
 
+/** Supplier Status - TAX_ENGINE_LOGIC_2025.md (VAT_SUPPLIER_STATUS rule) */
+const SUPPLIER_STATUS_VALUES = ['ACTIVE', 'SUSPENDED', 'CLOSED', 'BANKRUPT'] as const;
+
 /** Options cho Select dropdown */
 const PARTNER_TYPE_OPTIONS: { value: typeof PARTNER_TYPE_VALUES[number]; label: string }[] = [
     { value: 'CUSTOMER', label: '👤 Khách hàng' },
     { value: 'VENDOR', label: '🏭 Nhà cung cấp' },
     { value: 'BOTH', label: '🤝 Cả hai' },
+];
+
+/** Supplier Status Options - VAT_SUPPLIER_STATUS rule */
+const SUPPLIER_STATUS_OPTIONS: { value: typeof SUPPLIER_STATUS_VALUES[number]; label: string; color: string }[] = [
+    { value: 'ACTIVE', label: '✅ Đang hoạt động', color: 'text-green-600' },
+    { value: 'SUSPENDED', label: '⚠️ Bị đình chỉ', color: 'text-yellow-600' },
+    { value: 'CLOSED', label: '❌ Đã đóng MST', color: 'text-red-600' },
+    { value: 'BANKRUPT', label: '💀 Phá sản', color: 'text-red-700' },
 ];
 
 // ==========================================
@@ -60,6 +71,8 @@ const PARTNER_TYPE_OPTIONS: { value: typeof PARTNER_TYPE_VALUES[number]; label: 
 const formSchema = z.object({
     name: z.string().min(1, 'Tên đối tác không được để trống'),
     partner_type: z.enum(PARTNER_TYPE_VALUES),
+    // Tax Engine 2025: supplier_status for VAT_SUPPLIER_STATUS rule
+    supplier_status: z.enum(SUPPLIER_STATUS_VALUES),
     phone: z.string().optional(),
     email: z.string().email('Email không hợp lệ').or(z.literal('')).optional(),
     address: z.string().optional(),
@@ -105,6 +118,7 @@ export function PartnerFormDialog({
         defaultValues: {
             name: '',
             partner_type: 'CUSTOMER',
+            supplier_status: 'ACTIVE',
             phone: '',
             email: '',
             address: '',
@@ -123,6 +137,7 @@ export function PartnerFormDialog({
                 form.reset({
                     name: partner.name,
                     partner_type: partner.partner_type as typeof PARTNER_TYPE_VALUES[number],
+                    supplier_status: (partner.supplier_status as typeof SUPPLIER_STATUS_VALUES[number]) || 'ACTIVE',
                     phone: partner.phone || '',
                     email: partner.email || '',
                     address: partner.address || '',
@@ -136,6 +151,7 @@ export function PartnerFormDialog({
                 form.reset({
                     name: '',
                     partner_type: 'CUSTOMER',
+                    supplier_status: 'ACTIVE',
                     phone: '',
                     email: '',
                     address: '',
@@ -268,6 +284,40 @@ export function PartnerFormDialog({
                             )}
                         />
 
+                        {/* Supplier Status - Tax Engine 2025: VAT_SUPPLIER_STATUS rule */}
+                        {(form.watch('partner_type') === 'VENDOR' || form.watch('partner_type') === 'BOTH') && (
+                            <FormField
+                                control={form.control}
+                                name="supplier_status"
+                                render={({ field }) => (
+                                    <FormItem>
+                                        <FormLabel className="flex items-center gap-2">
+                                            Trạng thái NCC
+                                            <Badge variant="outline" className="text-xs">Tax Engine</Badge>
+                                        </FormLabel>
+                                        <Select value={field.value} onValueChange={field.onChange}>
+                                            <FormControl>
+                                                <SelectTrigger>
+                                                    <SelectValue placeholder="Chọn trạng thái" />
+                                                </SelectTrigger>
+                                            </FormControl>
+                                            <SelectContent>
+                                                {SUPPLIER_STATUS_OPTIONS.map((opt) => (
+                                                    <SelectItem key={opt.value} value={opt.value}>
+                                                        <span className={opt.color}>{opt.label}</span>
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <FormDescription className="text-xs">
+                                            VAT không được khấu trừ nếu NCC bị đình chỉ/đóng MST/phá sản
+                                        </FormDescription>
+                                        <FormMessage />
+                                    </FormItem>
+                                )}
+                            />
+                        )}
+
                         {/* Contact Info */}
                         <div className="grid grid-cols-2 gap-4">
                             <FormField
@@ -357,8 +407,8 @@ export function PartnerFormDialog({
                                         {/* MST Lookup Result */}
                                         {mstResult && (
                                             <div className={`mt-2 p-2 rounded-md text-sm ${mstResult.success
-                                                    ? 'bg-green-50 border border-green-200 dark:bg-green-950/30 dark:border-green-900'
-                                                    : 'bg-red-50 border border-red-200 dark:bg-red-950/30 dark:border-red-900'
+                                                ? 'bg-green-50 border border-green-200 dark:bg-green-950/30 dark:border-green-900'
+                                                : 'bg-red-50 border border-red-200 dark:bg-red-950/30 dark:border-red-900'
                                                 }`}>
                                                 {mstResult.success ? (
                                                     <div className="flex items-start gap-2">

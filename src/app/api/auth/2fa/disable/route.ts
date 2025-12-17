@@ -21,7 +21,7 @@ export const POST = withAuth(
             }
 
             const dbUser = await prisma.user.findUnique({
-                where: { id: user.user_id },
+                where: { id: user.id },
                 select: {
                     two_factor_secret: true,
                     two_factor_enabled: true,
@@ -49,7 +49,7 @@ export const POST = withAuth(
 
             // Disable 2FA
             await prisma.user.update({
-                where: { id: user.user_id },
+                where: { id: user.id },
                 data: {
                     two_factor_enabled: false,
                     two_factor_secret: null,

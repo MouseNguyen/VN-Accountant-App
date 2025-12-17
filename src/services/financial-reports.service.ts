@@ -282,7 +282,7 @@ export async function getFinancialKPIs(farmId: string): Promise<FinancialKPIs> {
     });
 
     const vendorCount = await prisma.partner.count({
-        where: { farm_id: farmId, partner_type: 'SUPPLIER' },
+        where: { farm_id: farmId, partner_type: 'VENDOR' },
     });
 
     // Calculate values

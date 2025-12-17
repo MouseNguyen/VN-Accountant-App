@@ -70,6 +70,9 @@ enum PaymentStatus {
   UNPAID      // Chưa thanh toán (legacy)
   PARTIAL     // Thanh toán một phần
   CANCELLED   // Đã hủy
+  DRAFT       // Nháp (chưa ghi sổ)
+  POSTED      // Đã ghi sổ
+  VOID        // Đã hủy (AR/AP Payment)
 }
 
 enum WorkType {

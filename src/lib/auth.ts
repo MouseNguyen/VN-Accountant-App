@@ -257,12 +257,12 @@ export async function rotateRefreshToken(
     // Get user data for new tokens
     const user = await prismaBase.user.findUnique({
         where: { id: userId },
-        include: { farms: { take: 1 } },
+        include: { farm: true },
     });
 
     if (!user) return null;
 
-    const farmId = user.farms[0]?.farm_id || '';
+    const farmId = user.farm_id || '';
     const tokenPayload = { userId, farmId, email: user.email };
 
     // Mark old token as used
