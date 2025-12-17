@@ -150,3 +150,60 @@ export function useDeleteARInvoice() {
         },
     });
 }
+
+// Post invoice
+async function postARInvoice(farmId: string, id: string): Promise<{ invoice: ARInvoice; stock_movements: any[] }> {
+    const res = await fetch(`${API_BASE}/${id}/post`, {
+        method: 'POST',
+        headers: { 'X-Farm-Id': farmId },
+    });
+    if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to post invoice');
+    }
+    return res.json();
+}
+
+// Void invoice
+async function voidARInvoice(farmId: string, id: string, reason?: string): Promise<{ invoice: ARInvoice }> {
+    const res = await fetch(`${API_BASE}/${id}/void`, {
+        method: 'POST',
+        headers: {
+            'X-Farm-Id': farmId,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ reason }),
+    });
+    if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Failed to void invoice');
+    }
+    return res.json();
+}
+
+export function usePostARInvoice() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: ({ farmId, id }: { farmId: string; id: string }) =>
+            postARInvoice(farmId, id),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['ar-invoices'] });
+            queryClient.invalidateQueries({ queryKey: ['ar-invoice'] });
+        },
+    });
+}
+
+export function useVoidARInvoice() {
+    const queryClient = useQueryClient();
+
+    return useMutation({
+        mutationFn: ({ farmId, id, reason }: { farmId: string; id: string; reason?: string }) =>
+            voidARInvoice(farmId, id, reason),
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['ar-invoices'] });
+            queryClient.invalidateQueries({ queryKey: ['ar-invoice'] });
+        },
+    });
+}
+

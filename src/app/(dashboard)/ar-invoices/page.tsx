@@ -41,7 +41,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { useToast } from '@/components/ui/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import { useARInvoices, useDeleteARInvoice } from '@/hooks/use-ar-invoices';
 import type { ARInvoice } from '@/types/ar-invoice';
 

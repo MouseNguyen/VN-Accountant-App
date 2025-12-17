@@ -297,6 +297,211 @@ export async function deleteARInvoice(
 }
 
 // ==========================================
+// POST AR INVOICE (DRAFT → POSTED)
+// ==========================================
+
+export interface PostInvoiceResult {
+    invoice: ARInvoice;
+    stockMovements: { product_id: string; quantity: number }[];
+}
+
+export async function postInvoice(
+    farmId: string,
+    invoiceId: string,
+    userId: string
+): Promise<PostInvoiceResult> {
+    // 1. Validate invoice
+    const invoice = await prisma.aRInvoice.findFirst({
+        where: { id: invoiceId, farm_id: farmId },
+        include: { lines: true },
+    });
+
+    if (!invoice) throw new Error('Hóa đơn không tồn tại');
+    if (invoice.status !== 'DRAFT') throw new Error('Chỉ có thể ghi sổ hóa đơn nháp');
+    if (!invoice.lines || invoice.lines.length === 0) throw new Error('Hóa đơn phải có ít nhất 1 dòng');
+
+    const stockMovements: { product_id: string; quantity: number }[] = [];
+
+    // 2. Execute in transaction
+    const updated = await prisma.$transaction(async (tx) => {
+        // 2a. Create stock movements for products (xuất kho)
+        for (const line of invoice.lines) {
+            if (line.product_id) {
+                const quantity = Number(line.quantity);
+
+                // Create stock movement record
+                const movementCode = await generateMovementCodeForPost(tx, farmId, invoice.invoice_date);
+                await tx.stockMovement.create({
+                    data: {
+                        farm_id: farmId,
+                        code: movementCode,
+                        date: invoice.invoice_date,
+                        type: 'OUT',
+                        product_id: line.product_id,
+                        quantity: quantity,
+                        unit: line.unit || 'kg',
+                        unit_price: line.unit_price,
+                        partner_id: invoice.customer_id,
+                        notes: `Xuất hàng theo HĐ ${invoice.invoice_number}`,
+                    },
+                });
+
+                // Update stock quantity
+                const existingStock = await tx.stock.findFirst({
+                    where: { farm_id: farmId, product_id: line.product_id },
+                });
+
+                if (existingStock) {
+                    await tx.stock.update({
+                        where: { id: existingStock.id },
+                        data: { quantity: { decrement: quantity } },
+                    });
+                }
+
+                stockMovements.push({ product_id: line.product_id, quantity });
+            }
+        }
+
+        // 2b. Update customer balance (tăng công nợ)
+        await tx.partner.update({
+            where: { id: invoice.customer_id },
+            data: { balance: { increment: invoice.total_amount } },
+        });
+
+        // 2c. Update invoice status
+        return tx.aRInvoice.update({
+            where: { id: invoiceId },
+            data: {
+                status: 'POSTED',
+                posted_at: new Date(),
+                posted_by: userId,
+            },
+            include: {
+                customer: { select: { id: true, name: true, code: true } },
+                lines: { orderBy: { line_number: 'asc' } },
+            },
+        });
+    });
+
+    return {
+        invoice: formatARInvoice(updated),
+        stockMovements,
+    };
+}
+
+// ==========================================
+// VOID AR INVOICE (HỦY HÓA ĐƠN)
+// ==========================================
+
+export interface VoidInvoiceInput {
+    reason?: string;
+}
+
+export async function voidInvoice(
+    farmId: string,
+    invoiceId: string,
+    userId: string,
+    input?: VoidInvoiceInput
+): Promise<ARInvoice> {
+    // 1. Validate invoice
+    const invoice = await prisma.aRInvoice.findFirst({
+        where: { id: invoiceId, farm_id: farmId },
+        include: { lines: true },
+    });
+
+    if (!invoice) throw new Error('Hóa đơn không tồn tại');
+    if (invoice.status === 'VOID') throw new Error('Hóa đơn đã bị hủy');
+    if (invoice.status === 'PAID') throw new Error('Không thể hủy hóa đơn đã thanh toán đủ');
+    if (Number(invoice.paid_amount) > 0) throw new Error('Không thể hủy hóa đơn đã có thanh toán');
+
+    // 2. Execute in transaction
+    const updated = await prisma.$transaction(async (tx) => {
+        // 2a. If was POSTED, reverse stock movements
+        if (invoice.status === 'POSTED' || invoice.status === 'PARTIALLY_PAID' || invoice.status === 'OVERDUE') {
+            for (const line of invoice.lines) {
+                if (line.product_id) {
+                    const quantity = Number(line.quantity);
+
+                    // Create reverse stock movement (nhập lại kho)
+                    const movementCode = await generateMovementCodeForPost(tx, farmId, new Date());
+                    await tx.stockMovement.create({
+                        data: {
+                            farm_id: farmId,
+                            code: movementCode,
+                            date: new Date(),
+                            type: 'IN',
+                            product_id: line.product_id,
+                            quantity: quantity,
+                            unit: line.unit || 'kg',
+                            unit_price: line.unit_price,
+                            partner_id: invoice.customer_id,
+                            notes: `Nhập lại kho do hủy HĐ ${invoice.invoice_number}`,
+                        },
+                    });
+
+                    // Update stock quantity (increment back)
+                    const existingStock = await tx.stock.findFirst({
+                        where: { farm_id: farmId, product_id: line.product_id },
+                    });
+
+                    if (existingStock) {
+                        await tx.stock.update({
+                            where: { id: existingStock.id },
+                            data: { quantity: { increment: quantity } },
+                        });
+                    }
+                }
+            }
+
+            // 2b. Reverse customer balance (giảm công nợ)
+            await tx.partner.update({
+                where: { id: invoice.customer_id },
+                data: { balance: { decrement: invoice.total_amount } },
+            });
+        }
+
+        // 2c. Update invoice status
+        return tx.aRInvoice.update({
+            where: { id: invoiceId },
+            data: {
+                status: 'VOID',
+                notes: input?.reason
+                    ? `${invoice.notes || ''}\n[HỦY] ${input.reason}`.trim()
+                    : invoice.notes,
+            },
+            include: {
+                customer: { select: { id: true, name: true, code: true } },
+                lines: { orderBy: { line_number: 'asc' } },
+            },
+        });
+    });
+
+    return formatARInvoice(updated);
+}
+
+// Helper: Generate stock movement code for posting
+async function generateMovementCodeForPost(tx: any, farmId: string, date: Date): Promise<string> {
+    const dateStr = date.toISOString().slice(2, 10).replace(/-/g, ''); // YYMMDD
+    const prefix = `XK${dateStr}`; // XK = Xuất kho
+
+    const lastMovement = await tx.stockMovement.findFirst({
+        where: {
+            farm_id: farmId,
+            code: { startsWith: prefix },
+        },
+        orderBy: { code: 'desc' },
+    });
+
+    let seq = 1;
+    if (lastMovement) {
+        const lastSeq = parseInt(lastMovement.code.slice(-3) || '0');
+        seq = lastSeq + 1;
+    }
+
+    return `${prefix}${seq.toString().padStart(3, '0')}`;
+}
+
+// ==========================================
 // HELPERS
 // ==========================================
 

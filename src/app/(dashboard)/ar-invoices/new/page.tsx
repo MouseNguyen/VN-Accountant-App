@@ -19,7 +19,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { useToast } from '@/components/ui/use-toast';
+import { useToast } from '@/hooks/use-toast';
 import { useCreateARInvoice } from '@/hooks/use-ar-invoices';
 import { usePartners } from '@/hooks/use-partners';
 import type { ARInvoiceLineInput } from '@/types/ar-invoice';
