@@ -44,16 +44,14 @@ export function useAPTransactions(params: APListParams = {}) {
         queryFn: async () => {
             const searchParams = new URLSearchParams();
 
-            // Use proper AP transactions API
+            // Use AP Invoices API (has actual data) instead of ap-transactions (empty)
             if (params.page) searchParams.set('page', String(params.page));
             if (params.limit) searchParams.set('limit', String(params.limit));
             if (params.search) searchParams.set('search', params.search);
             if (params.vendor_id) searchParams.set('vendor_id', params.vendor_id);
-            if (params.status) searchParams.set('status', params.status);
-            if (params.date_from) searchParams.set('date_from', params.date_from);
-            if (params.date_to) searchParams.set('date_to', params.date_to);
+            if (params.status === 'UNPAID') searchParams.set('status', 'POSTED');
 
-            const response = await fetch(`${API_BASE}/ap-transactions?${searchParams}`, {
+            const response = await fetch(`${API_BASE}/ap/invoices?${searchParams}`, {
                 credentials: 'include',
             });
 
@@ -63,7 +61,42 @@ export function useAPTransactions(params: APListParams = {}) {
             }
 
             const json = await response.json();
-            return json.data;
+
+            // Transform APInvoice to APTransaction format for compatibility
+            const invoices = json.items || [];
+            const items = invoices.map((inv: any) => ({
+                id: inv.id,
+                code: inv.invoice_number,
+                type: 'INVOICE',
+                trans_date: inv.invoice_date,
+                due_date: inv.due_date,
+                amount: inv.total_amount,
+                balance: inv.total_amount - inv.paid_amount,
+                paid_amount: inv.paid_amount,
+                status: inv.status === 'PAID' ? 'PAID' :
+                    inv.paid_amount > 0 ? 'PARTIAL' :
+                        inv.status === 'POSTED' ? 'UNPAID' : inv.status,
+                days_overdue: inv.due_date ? Math.max(0, Math.floor((new Date().getTime() - new Date(inv.due_date).getTime()) / (1000 * 60 * 60 * 24))) : 0,
+                vendor: inv.vendor,
+                vendor_id: inv.vendor_id,
+            }));
+
+            // Calculate summary from items
+            const total_payable = items.reduce((sum: number, i: any) => sum + i.balance, 0);
+            const total_overdue = items.filter((i: any) => i.days_overdue > 0).reduce((sum: number, i: any) => sum + i.balance, 0);
+
+            return {
+                items,
+                total: json.total || items.length,
+                page: json.page || 1,
+                limit: json.limit || 20,
+                hasMore: false,
+                summary: {
+                    total_payable,
+                    total_overdue,
+                    total_paid_this_month: 0, // Would need payment data to calculate
+                },
+            };
         },
     });
 }

@@ -1,7 +1,7 @@
 // src/lib/prisma.ts
 // Prisma Client với Extension cho Multi-tenancy và Decimal serialization
 
-import { PrismaClient, Prisma } from '@prisma/client';
+import { PrismaClient, Prisma, TaxScheduleStatus } from '@prisma/client';
 import { getCurrentFarmIdOrNull } from './context';
 
 // ==========================================
@@ -288,6 +288,65 @@ const prisma = prismaBase.$extends({
                 }
 
                 const result = await query(args);
+                return convertDecimalToNumber(result);
+            },
+        },
+
+        // ==========================================
+        // DATA SYNC HOOKS - Auto-sync related tables
+        // ==========================================
+
+        // VAT Declaration → TaxSchedule sync
+        vATDeclaration: {
+            async update({ args, query }) {
+                const result = await query(args);
+
+                // Sync status to TaxSchedule when VAT status changes
+                if (args.data?.status && result?.farm_id && result?.period_code) {
+                    try {
+                        await prismaBase.taxSchedule.updateMany({
+                            where: {
+                                farm_id: result.farm_id,
+                                tax_type: 'VAT',
+                                period: result.period_code,
+                            },
+                            data: {
+                                status: args.data.status as TaxScheduleStatus,
+                            },
+                        });
+                    } catch (e) {
+                        // Log but don't fail - sync is best effort
+                        console.warn('[DataSync] Failed to sync VAT → TaxSchedule:', e);
+                    }
+                }
+
+                return convertDecimalToNumber(result);
+            },
+        },
+
+        // CIT Calculation → TaxSchedule sync
+        cITCalculation: {
+            async update({ args, query }) {
+                const result = await query(args);
+
+                // Sync status to TaxSchedule when CIT status changes
+                if (args.data?.status && result?.farm_id && result?.period) {
+                    try {
+                        await prismaBase.taxSchedule.updateMany({
+                            where: {
+                                farm_id: result.farm_id,
+                                tax_type: 'CIT',
+                                period: result.period,
+                            },
+                            data: {
+                                status: args.data.status as TaxScheduleStatus,
+                            },
+                        });
+                    } catch (e) {
+                        console.warn('[DataSync] Failed to sync CIT → TaxSchedule:', e);
+                    }
+                }
+
                 return convertDecimalToNumber(result);
             },
         },

@@ -162,7 +162,7 @@ export default function CollectPaymentPage() {
                             <option value="">-- Chọn khách hàng --</option>
                             {customers?.map((c) => (
                                 <option key={c.id} value={c.id}>
-                                    {c.name} ({c.code})
+                                    {c.name} ({c.code}) {c.balance > 0 ? `- Nợ: ${formatMoney(c.balance)}` : ''}
                                 </option>
                             ))}
                         </select>

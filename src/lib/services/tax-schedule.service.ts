@@ -180,7 +180,7 @@ export async function getUpcomingDeadlines(farmId: string, days: number = 30) {
 // ==========================================
 
 export async function getOverdueItems(farmId: string) {
-    return prisma.taxSchedule.findMany({
+    const pendingSchedules = await prisma.taxSchedule.findMany({
         where: {
             farm_id: farmId,
             status: { in: ['PENDING', 'REMINDED'] },
@@ -188,6 +188,51 @@ export async function getOverdueItems(farmId: string) {
         },
         orderBy: { due_date: 'asc' },
     });
+
+    // Filter out items that have been submitted in their respective declaration tables
+    const filtered: typeof pendingSchedules = [];
+
+    for (const schedule of pendingSchedules) {
+        let isSubmitted = false;
+
+        if (schedule.tax_type === 'VAT') {
+            // Check VATDeclaration for SUBMITTED status
+            const decl = await prisma.vATDeclaration.findFirst({
+                where: {
+                    farm_id: farmId,
+                    period_code: schedule.period,
+                    status: 'SUBMITTED',
+                },
+            });
+            isSubmitted = !!decl;
+        } else if (schedule.tax_type === 'CIT') {
+            // Check CITCalculation for SUBMITTED status
+            const calc = await prisma.cITCalculation.findFirst({
+                where: {
+                    farm_id: farmId,
+                    period: schedule.period,
+                    status: 'SUBMITTED',
+                },
+            });
+            isSubmitted = !!calc;
+        } else if (schedule.tax_type === 'PIT') {
+            // PITCalculation doesn't have status - check via TaxSchedule manually marked
+            // For now, skip automatic check for PIT
+            isSubmitted = false;
+        }
+
+        // If submitted in declaration, also update the TaxSchedule status for future queries
+        if (isSubmitted) {
+            await prisma.taxSchedule.update({
+                where: { id: schedule.id },
+                data: { status: 'SUBMITTED' },
+            });
+        } else {
+            filtered.push(schedule);
+        }
+    }
+
+    return filtered;
 }
 
 // ==========================================

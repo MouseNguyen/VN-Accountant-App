@@ -26,16 +26,48 @@ import type { ARTransaction, ARListResponse } from '@/types/ar';
 
 async function fetchARTransactions(params: Record<string, string>): Promise<ARListResponse> {
     const searchParams = new URLSearchParams();
-    // Use the proper AR transactions API
+    // Use the AR Invoices API (has actual data) instead of ar-transactions (empty)
     if (params.search) searchParams.set('search', params.search);
-    if (params.status) searchParams.set('status', params.status);
-    if (params.overdue_only) searchParams.set('overdue_only', params.overdue_only);
+    if (params.status === 'UNPAID') searchParams.set('status', 'POSTED'); // POSTED = unpaid in invoice world
+    if (params.status === 'OVERDUE') searchParams.set('overdue', 'true');
 
-    const res = await fetch(`/api/ar-transactions?${searchParams.toString()}`);
+    const res = await fetch(`/api/ar/invoices?${searchParams.toString()}`);
     const json = await res.json();
-    if (!json.success) throw new Error(json.error?.message || 'Lỗi tải danh sách');
+    if (json.error) throw new Error(json.error);
 
-    return json.data;
+    // Transform ARInvoice format to ARTransaction format for compatibility
+    const invoices = json.items || [];
+    const items = invoices.map((inv: any) => ({
+        id: inv.id,
+        code: inv.invoice_number,
+        type: 'INVOICE',
+        trans_date: inv.invoice_date,
+        due_date: inv.due_date,
+        amount: inv.total_amount,
+        balance: inv.total_amount - inv.paid_amount,
+        status: inv.status === 'PAID' ? 'PAID' :
+            inv.paid_amount > 0 ? 'PARTIAL' :
+                inv.status === 'POSTED' ? 'UNPAID' : inv.status,
+        days_overdue: inv.due_date ? Math.max(0, Math.floor((new Date().getTime() - new Date(inv.due_date).getTime()) / (1000 * 60 * 60 * 24))) : 0,
+        customer: inv.customer,
+    }));
+
+    // Calculate summary from actual data
+    const total_receivable = items.reduce((sum: number, i: any) => sum + i.balance, 0);
+    const total_overdue = items.filter((i: any) => i.days_overdue > 0).reduce((sum: number, i: any) => sum + i.balance, 0);
+
+    return {
+        items,
+        total: json.total || items.length,
+        page: json.page || 1,
+        limit: json.limit || 20,
+        hasMore: false,
+        summary: {
+            total_receivable,
+            total_overdue,
+            total_paid_this_month: 0, // Would need payment data
+        },
+    };
 }
 
 // Helper to calculate days overdue

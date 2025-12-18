@@ -197,7 +197,14 @@ export default function TraTienPage() {
                             <SelectContent>
                                 {vendors.map((vendor: Partner) => (
                                     <SelectItem key={vendor.id} value={vendor.id}>
-                                        {vendor.name}
+                                        <div className="flex justify-between items-center w-full gap-4">
+                                            <span>{vendor.name}</span>
+                                            {(vendor.balance ?? 0) > 0 && (
+                                                <span className="text-red-600 text-sm font-medium">
+                                                    {formatMoney(vendor.balance ?? 0)}
+                                                </span>
+                                            )}
+                                        </div>
                                     </SelectItem>
                                 ))}
                             </SelectContent>
@@ -302,8 +309,8 @@ export default function TraTienPage() {
                                         <div
                                             key={inv.id}
                                             className={`p-3 rounded-lg border transition-colors ${formData.invoice_ids.includes(inv.id)
-                                                    ? 'border-primary bg-primary/5'
-                                                    : 'bg-muted/30'
+                                                ? 'border-primary bg-primary/5'
+                                                : 'bg-muted/30'
                                                 }`}
                                         >
                                             <div className="flex items-center justify-between">
