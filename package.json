@@ -27,7 +27,9 @@
     "test:coverage": "vitest run --coverage",
     "test:ui": "vitest --ui",
     "test:integration": "vitest run tests/integration --environment node",
-    "test:unit": "vitest run src/tests"
+    "test:unit": "vitest run src/tests",
+    "check:enum-drift": "npx tsx scripts/check-enum-drift.ts",
+    "qa:fast": "npm run type-check && npm run lint && npm run check:enum-drift"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -92,6 +94,7 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.57.0",
     "@tailwindcss/postcss": "^4",
     "@tanstack/react-query-devtools": "^5.91.1",
     "@testing-library/jest-dom": "^6.9.1",

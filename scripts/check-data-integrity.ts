@@ -3,6 +3,7 @@
 // Run: npx tsx scripts/check-data-integrity.ts
 
 import { PrismaClient, Prisma } from '@prisma/client';
+import { getMovementDelta } from '../src/lib/stock-movement';
 
 const prisma = new PrismaClient();
 
@@ -29,9 +30,9 @@ const issues: IntegrityIssue[] = [];
 
 function addIssue(issue: IntegrityIssue) {
     issues.push(issue);
-    const color = issue.severity === 'CRITICAL' ? RED : 
-                  issue.severity === 'HIGH' ? YELLOW : 
-                  issue.severity === 'MEDIUM' ? BLUE : RESET;
+    const color = issue.severity === 'CRITICAL' ? RED :
+        issue.severity === 'HIGH' ? YELLOW :
+            issue.severity === 'MEDIUM' ? BLUE : RESET;
     console.log(`${color}[${issue.severity}]${RESET} ${issue.category}: ${issue.description}`);
 }
 
@@ -65,7 +66,7 @@ async function checkPartnerBalanceSync() {
 
         for (const t of partner.transactions) {
             const outstanding = Number(t.total_amount) - Number(t.paid_amount);
-            
+
             // SALE/INCOME → Customer owes us (positive)
             // PURCHASE/EXPENSE → We owe vendor (negative for vendor, but stored as positive)
             if (['SALE', 'INCOME'].includes(t.trans_type)) {
@@ -294,11 +295,11 @@ async function checkStockMovementReconciliation() {
 
         let calculatedQty = 0;
         for (const m of movements) {
-            if (['IN', 'ADJUSTMENT_IN', 'TRANSFER_IN'].includes(m.type)) {
-                calculatedQty += Number(m.quantity);
-            } else if (['OUT', 'ADJUSTMENT_OUT', 'TRANSFER_OUT'].includes(m.type)) {
-                calculatedQty -= Number(m.quantity);
-            }
+            // Use shared movement delta logic with correct enum values
+            calculatedQty += getMovementDelta({
+                type: m.type,
+                quantity: m.quantity,
+            });
         }
 
         const stockQty = Number(stock.quantity);
